@@ -1,21 +1,41 @@
 export const enum Suit {
-  Hearts,
-  Clubs,
-  Spades,
-  Diamonds,
+  Hearts = "hearts",
+  Clubs = "clubs",
+  Spades = "spades",
+  Diamonds = "diamonds",
 }
 
 export function suitIterator() {
   return [Suit.Hearts, Suit.Clubs, Suit.Spades, Suit.Diamonds];
 }
 
+export function displaySuit(suit: Suit) {
+  return {
+    [Suit.Clubs]: "♣",
+    [Suit.Diamonds]: "♦",
+    [Suit.Hearts]: "♥",
+    [Suit.Spades]: "♠",
+  }[suit];
+}
+
 export const enum Rank {
-  Nine,
-  Ten,
-  Jack,
-  Queen,
-  King,
-  Ace,
+  Nine = "9",
+  Ten = "10",
+  Jack = "J",
+  Queen = "Q",
+  King = "K",
+  Ace = "A",
+}
+
+export function displayRank(rank: Rank) {
+  return {
+    [Rank.Nine]: "9",
+    [Rank.Ten]: "10",
+    [Rank.Jack]: "J",
+    [Rank.Queen]: "Q",
+    [Rank.King]: "K",
+    [Rank.Ace]: "A",
+  }[rank];
 }
 
 export function rankInterator() {
@@ -83,24 +103,6 @@ export class Card {
       case Rank.Ace:
         return this.isTrump(trump) ? 4 : 5;
     }
-  }
-
-  toString() {
-    const rank = {
-      [Rank.Nine]: "9",
-      [Rank.Ten]: "10",
-      [Rank.Jack]: "J",
-      [Rank.Queen]: "Q",
-      [Rank.King]: "K",
-      [Rank.Ace]: "A",
-    }[this.rank];
-    const suit = {
-      [Suit.Clubs]: "♣",
-      [Suit.Diamonds]: "♦",
-      [Suit.Hearts]: "♥",
-      [Suit.Spades]: "♠",
-    }[this.suit];
-    return `${rank}${suit}`;
   }
 }
 

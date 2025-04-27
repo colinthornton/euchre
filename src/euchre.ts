@@ -55,6 +55,7 @@ export const euchreMachine = setup({
     }),
     nextPlayer: assign(nextPlayer),
     orderUp: assign({
+      active: ({ context }) => context.dealer,
       trump: ({ context }) => {
         if (!context.revealed) throw new Error();
 
@@ -95,8 +96,10 @@ export const euchreMachine = setup({
       if (event.type !== "PLAY") throw new Error();
 
       const { deck, trump, players, active, trick } = context;
+      if (trump === null) throw new Error();
+
       const cardRef = deck.getCardRef(event.card);
-      if (!(cardRef && trump)) throw new Error();
+      if (!cardRef) throw new Error();
 
       const winning = trick.every((card) => cardRef.compare(card, trump) === 1);
       if (winning) enqueue.assign({ winning: active });
@@ -147,7 +150,7 @@ export const euchreMachine = setup({
       if (event.type !== "PLAY") return false;
 
       const { deck, players, active, trick, trump } = context;
-      if (!trump) return false;
+      if (trump === null) return false;
 
       // card must exist
       const cardRef = deck.getCardRef(event.card);
