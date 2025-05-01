@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { displayRank, displaySuit } from "../game/cards";
-import type { Card } from "../game/cards";
+import type { Suit, Rank } from "../game/cards";
 
 const props = withDefaults(
   defineProps<{
-    card: Card;
+    suit: Suit;
+    rank: Rank;
     disabled?: boolean;
     hidden?: boolean;
   }>(),
@@ -27,29 +28,70 @@ function handleSelect() {
 </script>
 
 <template>
-  <component :is="tag" :class="['card', card.suit]" @pointerdown="handleSelect">
-    <div class="corner">
-      <span class="rank">{{ displayRank(card.rank) }}</span>
-      <span class="suit">{{ displaySuit(card.suit) }}</span>
+  <component
+    :is="tag"
+    :class="['card', suit, { hidden }]"
+    @pointerdown="handleSelect"
+  >
+    <div class="front">
+      <div class="corner">
+        <span class="rank">{{ displayRank(rank) }}</span>
+        <span class="suit">{{ displaySuit(suit) }}</span>
+      </div>
+      <div class="face">{{ displaySuit(suit) }}</div>
+      <div class="corner flipped">
+        <span class="rank">{{ displayRank(rank) }}</span>
+        <span class="suit">{{ displaySuit(suit) }}</span>
+      </div>
     </div>
-    <div class="face">{{ displaySuit(card.suit) }}</div>
-    <div class="corner flipped">
-      <span class="rank">{{ displayRank(card.rank) }}</span>
-      <span class="suit">{{ displaySuit(card.suit) }}</span>
-    </div>
+    <div class="back"></div>
   </component>
 </template>
 
 <style scoped>
 .card {
-  background: var(--gray-0);
-  border: var(--border-size-1) solid var(--gray-4);
   border-radius: var(--radius-3);
   width: var(--card-width);
   height: var(--card-height);
+  position: relative;
+  background: transparent;
+  transform-style: preserve-3d;
+}
+
+.front,
+.back {
   box-shadow: var(--shadow-6);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: var(--border-size-1) solid var(--gray-4);
+  border-radius: var(--radius-3);
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.front {
   display: flex;
   justify-content: space-between;
+  background: var(--gray-0);
+}
+
+.back {
+  box-shadow: none;
+  background: radial-gradient(var(--blue-11) 0, var(--blue-12) 70%),
+    var(--noise-3);
+  transform: rotateY(180deg);
+}
+
+.hidden .front {
+  box-shadow: none;
+  transform: rotateY(-180deg);
+}
+
+.hidden .back {
+  transform: rotateY(0);
 }
 
 .card.hearts,

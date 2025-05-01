@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { createBrowserInspector } from "@statelyai/inspect";
 import { useMachine } from "@xstate/vue";
-import { computed } from "vue";
+import { animate, createTimeline, utils } from "animejs";
+import { computed, onMounted, useTemplateRef } from "vue";
 import { euchreMachine } from "./game/euchre";
-import { displaySuit, suitIterator } from "./game/cards";
-import type { Card } from "./game/cards";
+import { Suit, suitIterator, Card, Rank } from "./game/cards";
 import CardComponent from "./components/Card.vue";
 import Hand from "./components/Hand.vue";
-import PlayerInfo from "./components/PlayerInfo.vue";
+import Deck from "./components/Deck.vue";
 
 const { inspect } = createBrowserInspector();
 
@@ -61,80 +61,59 @@ function selectCard(card: Card) {
 const leftCard = computed(() => snapshot.value.context.trick[1]);
 const acrossCard = computed(() => snapshot.value.context.trick[2]);
 const rightCard = computed(() => snapshot.value.context.trick[3]);
+
+onMounted(async () => {
+  // reveal auction card animation
+  createTimeline()
+    .add("#revealed .front", { rotateY: "-180deg", duration: 0 })
+    .add("#revealed .back", { rotateY: "0deg", duration: 0 })
+    .add("#deck", { y: { from: "50dvh" }, duration: 400, ease: "out" })
+    .add("#revealed", {
+      z: [0, ($target) => utils.get($target, "--card-width"), 0],
+      ease: "in",
+      duration: 400,
+    })
+    .add(
+      "#revealed .front",
+      { rotateY: "0deg", ease: "in", duration: 400 },
+      "<<"
+    )
+    .add(
+      "#revealed .back",
+      { rotateY: "180deg", ease: "in", duration: 400 },
+      "<<"
+    );
+});
 </script>
 
 <template>
   <div class="layout">
-    <Hand :cards="snapshot.context.players[0]" @select-card="selectCard" />
+    <!-- <Hand :cards="snapshot.context.players[0]" @select-card="selectCard" /> -->
     <section class="play-area">
-      <PlayerInfo
-        :is-dealer="snapshot.context.dealer === 2"
-        :tricks-taken="0"
-        :style="`--rotation: 180deg;`"
-      />
-      <CardComponent
-        v-if="acrossCard"
-        :card="acrossCard"
-        class="across"
-        disabled
-      />
-      <div v-else></div>
-      <PlayerInfo
-        :is-dealer="snapshot.context.dealer === 3"
-        :tricks-taken="0"
-        :style="`--rotation: -90deg;`"
-      />
-      <CardComponent v-if="leftCard" :card="leftCard" class="left" disabled />
-      <div v-else></div>
-      <CardComponent
-        v-if="
-          (snapshot.matches('auction') || snapshot.matches('exchanging')) &&
-          snapshot.context.revealed
-        "
-        :card="snapshot.context.revealed"
-        disabled
-      />
-      <div v-else-if="snapshot.context.trump">
-        {{ displaySuit(snapshot.context.trump) }}
+      <div class="cardzone">
+        <Deck
+          v-if="snapshot.context.revealed && snapshot.context.dealer === 0"
+          :revealed="snapshot.context.revealed"
+        />
       </div>
-      <div v-else></div>
-      <CardComponent
-        v-if="rightCard"
-        :card="rightCard"
-        class="right"
-        disabled
-      />
-      <div v-else></div>
-      <PlayerInfo
-        :is-dealer="snapshot.context.dealer === 1"
-        :tricks-taken="0"
-        :style="`--rotation: 90deg;`"
-      />
-      <div
-        class="auction"
-        v-if="snapshot.matches('auction') && snapshot.context.active === 0"
-      >
-        <button @click="send({ type: 'PASS' })">Pass</button>
-        <button @click="send({ type: 'ORDER_UP' })">Order Up</button>
+      <div class="cardzone left">
+        <Deck
+          v-if="snapshot.context.revealed && snapshot.context.dealer === 1"
+          :revealed="snapshot.context.revealed"
+        />
       </div>
-      <div
-        class="open"
-        v-else-if="snapshot.matches('open') && snapshot.context.active === 0"
-      >
-        <button @click="send({ type: 'PASS' })">Pass</button>
-        <div>
-          <button
-            v-for="suit in openSuits"
-            @click="send({ type: 'CALL_SUIT', suit })"
-          >
-            {{ displaySuit(suit) }}
-          </button>
-        </div>
+      <div class="cardzone across">
+        <Deck
+          v-if="snapshot.context.revealed && snapshot.context.dealer === 2"
+          :revealed="snapshot.context.revealed"
+        />
       </div>
-      <PlayerInfo
-        :is-dealer="snapshot.context.dealer === 0"
-        :tricks-taken="0"
-      />
+      <div class="cardzone right">
+        <Deck
+          v-if="snapshot.context.revealed && snapshot.context.dealer === 3"
+          :revealed="snapshot.context.revealed"
+        />
+      </div>
     </section>
   </div>
 </template>
@@ -142,7 +121,6 @@ const rightCard = computed(() => snapshot.value.context.trick[3]);
 <style scoped>
 .layout {
   min-height: 100dvh;
-  min-height: 100vh;
   display: grid;
   grid-template:
     "play-area" 1fr
@@ -151,11 +129,14 @@ const rightCard = computed(() => snapshot.value.context.trick[3]);
   background: linear-gradient(180deg, black 10%, rgba(0, 0, 0, 30%)),
     var(--noise-5), rgb(0, 128, 0);
   overflow: hidden;
-  perspective: 150dvh;
-  perspective-origin: top;
+  perspective: var(--perspective);
+  perspective-origin: var(--perspective-origin);
+  transform-style: preserve-3d;
 
-  --card-width: var(--size-11);
-  --card-height: var(--size-12);
+  --perspective: 150dvh;
+  --perspective-origin: top;
+  --card-width: var(--size-fluid-6);
+  --card-height: var(--size-fluid-7);
 }
 
 .play-area {
@@ -164,28 +145,31 @@ const rightCard = computed(() => snapshot.value.context.trick[3]);
   display: grid;
   align-self: center;
   place-items: center;
-  grid-template-rows: var(--card-height) var(--card-height) var(--card-height);
-  grid-template-columns: var(--card-height) var(--card-width) var(--card-height);
+  grid-template:
+    ". across ." var(--card-height)
+    "left . right" var(--card-width)
+    ". self ." var(--card-height) / var(--card-height) var(--card-width) var(--card-height);
   gap: var(--size-2);
+  transform-style: preserve-3d;
 }
 
-.auction {
-  display: grid;
-  place-content: center;
-  gap: var(--size-4);
+.cardzone {
+  grid-area: self;
+  width: var(--card-width);
+  height: var(--card-height);
+  transform-style: preserve-3d;
 }
 
-.card.left {
+.cardzone.left {
+  grid-area: left;
   transform: rotate(90deg);
 }
-.card.across {
+.cardzone.across {
+  grid-area: across;
   transform: rotate(180deg);
 }
-.card.right {
+.cardzone.right {
+  grid-area: right;
   transform: rotate(-90deg);
-}
-
-.hand {
-  grid-area: hand;
 }
 </style>
