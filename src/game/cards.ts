@@ -19,12 +19,12 @@ export function displaySuit(suit: Suit) {
 }
 
 export const enum Rank {
-  Nine = "9",
-  Ten = "10",
-  Jack = "J",
-  Queen = "Q",
-  King = "K",
-  Ace = "A",
+  Nine = "nine",
+  Ten = "ten",
+  Jack = "jack",
+  Queen = "queen",
+  King = "king",
+  Ace = "ace",
 }
 
 export function displayRank(rank: Rank) {
@@ -91,32 +91,26 @@ export class Card {
         return 0;
       case Rank.Ten:
         return 1;
+      case Rank.Queen:
+        return 3;
+      case Rank.King:
+        return 4;
+      case Rank.Ace:
+        return 5;
       case Rank.Jack:
         if (this.isTrump(trump)) {
-          return this.suit === trump ? 6 : 5;
+          return this.suit === trump ? 7 : 6;
         }
         return 2;
-      case Rank.Queen:
-        return this.isTrump(trump) ? 2 : 3;
-      case Rank.King:
-        return this.isTrump(trump) ? 3 : 4;
-      case Rank.Ace:
-        return this.isTrump(trump) ? 4 : 5;
     }
   }
 }
 
 export class Deck {
-  // holds references to all generated cards, including those dealt out
-  private cards: Card[] = [];
   private deck: Card[] = [];
 
   constructor() {
     this.reset();
-  }
-
-  getCardRef(card: Card) {
-    return this.cards.find((c) => c.equal(card));
   }
 
   size() {
@@ -124,12 +118,10 @@ export class Deck {
   }
 
   reset() {
-    this.cards = [];
     this.deck = [];
     for (const suit of suitIterator()) {
       for (const rank of rankInterator()) {
         const card = new Card(suit, rank);
-        this.cards.push(card);
         this.deck.push(card);
       }
     }
@@ -146,11 +138,11 @@ export class Deck {
   }
 
   deal(n: number) {
-    const dealt = new Set<Card>();
+    const dealt: Card[] = [];
     for (let i = 0; i < n; i++) {
       const card = this.deck.pop();
       if (!card) return dealt;
-      dealt.add(card);
+      dealt.push(card);
     }
     return dealt;
   }

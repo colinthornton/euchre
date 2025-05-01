@@ -1,26 +1,33 @@
 <script setup lang="ts">
-import { displayRank, displaySuit } from "../cards";
-import type { Card } from "../cards";
+import { computed } from "vue";
+import { displayRank, displaySuit } from "../game/cards";
+import type { Card } from "../game/cards";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     card: Card;
     disabled?: boolean;
+    hidden?: boolean;
   }>(),
-  { disabled: false }
+  { disabled: false, hidden: false }
 );
 
-defineEmits<{
-  click: [];
+const emit = defineEmits<{
+  select: [];
 }>();
+
+const selectable = computed(() => !(props.disabled || props.hidden));
+
+const tag = computed(() => (selectable.value ? "button" : "div"));
+
+function handleSelect() {
+  if (!selectable.value) return;
+  emit("select");
+}
 </script>
 
 <template>
-  <button
-    :class="['card', card.suit]"
-    @click="$emit('click')"
-    :disabled="disabled"
-  >
+  <component :is="tag" :class="['card', card.suit]" @pointerdown="handleSelect">
     <div class="corner">
       <span class="rank">{{ displayRank(card.rank) }}</span>
       <span class="suit">{{ displaySuit(card.suit) }}</span>
@@ -30,7 +37,7 @@ defineEmits<{
       <span class="rank">{{ displayRank(card.rank) }}</span>
       <span class="suit">{{ displaySuit(card.suit) }}</span>
     </div>
-  </button>
+  </component>
 </template>
 
 <style scoped>

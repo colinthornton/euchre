@@ -1,59 +1,62 @@
-import { assign, enqueueActions, setup } from "xstate";
+import { assign, setup } from "xstate";
 import { Deck } from "./cards";
 import { Card, type Suit } from "./cards";
 
 const PLAYER_COUNT = 4;
 const HAND_SIZE = 5;
 
-const initialContext = {
-  deck: new Deck(),
-  players: [] as Set<Card>[],
-  dealer: 0,
-  active: 0,
-  revealed: null as Card | null,
-  trump: null as Suit | null,
-  trick: [] as Card[],
-  winning: 0,
-  tricks: [] as Card[][],
-  tricksTaken: new Array<number>(PLAYER_COUNT).fill(0),
-  score: new Array<number>(PLAYER_COUNT / 2).fill(0),
-};
+type Event =
+  | { type: "PASS" }
+  | { type: "ORDER_UP" }
+  | { type: "CALL_SUIT"; suit: Suit }
+  | { type: "EXCHANGE"; card: Card }
+  | { type: "PLAY"; card: Card };
 
-const nextPlayer = {
-  active: ({ context }: { context: { active: number } }) =>
-    (context.active + 1) % PLAYER_COUNT,
+type Hand = Card[];
+type Trick = (Card | null)[];
+
+const initialContext = {
+  events: [] as Event[],
+  dealer: 0, // index of dealer
+  players: [] as Hand[],
+  revealed: null as Card | null,
+  active: 0, // index of active player
+  trump: null as Suit | null,
+  leader: 0, // index of who led the trick
+  trick: new Array(PLAYER_COUNT).fill(null) as Trick, // current trick
+  tricks: [] as Trick[], // finished tricks
+  taken: new Array<number>(PLAYER_COUNT).fill(0), // tricks taken by each player in current round
+  score: new Array<number>(PLAYER_COUNT / 2).fill(0),
 };
 
 export const euchreMachine = setup({
   types: {
     context: {} as typeof initialContext,
-    events: {} as
-      | { type: "PASS" }
-      | { type: "ORDER_UP" }
-      | { type: "CALL_SUIT"; suit: Suit }
-      | { type: "EXCHANGE"; card: Card }
-      | { type: "PLAY"; card: Card },
+    events: {} as Event,
   },
   actions: {
+    logEvent: assign({
+      events: ({ context, event }) => context.events.concat(event),
+    }),
     chooseDealer: assign({
       dealer: () => Math.floor(Math.random() * PLAYER_COUNT),
     }),
-    deal: enqueueActions(({ enqueue, context }) => {
-      const { deck } = context;
-      deck.reset();
+    deal: assign(({ context }) => {
+      const deck = new Deck();
       deck.shuffle();
       const players = new Array(PLAYER_COUNT)
         .fill(undefined)
         .map(() => deck.deal(HAND_SIZE));
       const revealed = deck.revealTop();
-      enqueue.assign({
+      return {
         players,
         active: (context.dealer + 1) % PLAYER_COUNT,
         revealed,
-        trump: null,
-      });
+      };
     }),
-    nextPlayer: assign(nextPlayer),
+    nextPlayer: assign({
+      active: ({ context }) => (context.active + 1) % PLAYER_COUNT,
+    }),
     orderUp: assign({
       active: ({ context }) => context.dealer,
       trump: ({ context }) => {
@@ -67,15 +70,13 @@ export const euchreMachine = setup({
         if (event.type !== "EXCHANGE") throw new Error();
         if (!context.revealed) throw new Error();
 
-        const { deck, players, dealer, revealed } = context;
-        const cardRef = deck.getCardRef(event.card);
-        if (!cardRef) throw new Error();
+        const { players, dealer, revealed } = context;
 
         return players.map((hand, player) => {
           if (player !== dealer) return hand;
-          hand.delete(cardRef);
-          hand.add(revealed);
-          return hand;
+          const newHand = hand.filter((card) => !card.equal(event.card));
+          newHand.push(revealed);
+          return newHand;
         });
       },
     }),
@@ -89,40 +90,56 @@ export const euchreMachine = setup({
     nextDealer: assign({
       dealer: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
     }),
-    assignActivePlayer: assign({
-      active: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
+    assignLead: assign(({ context }) => {
+      const leader = (context.dealer + 1) % PLAYER_COUNT;
+      return {
+        active: leader,
+        leader,
+      };
     }),
-    playCard: enqueueActions(({ enqueue, context, event }) => {
+    playCard: assign(({ context, event }) => {
       if (event.type !== "PLAY") throw new Error();
 
-      const { deck, trump, players, active, trick } = context;
+      const { trump, active } = context;
       if (trump === null) throw new Error();
 
-      const cardRef = deck.getCardRef(event.card);
-      if (!cardRef) throw new Error();
-
-      const winning = trick.every((card) => cardRef.compare(card, trump) === 1);
-      if (winning) enqueue.assign({ winning: active });
-
-      enqueue.assign({
-        // remove card from hand
-        players: players.map((hand, player) => {
-          if (player !== active) return hand;
-          hand.delete(cardRef);
-          return hand;
-        }),
-        // add card to trick
-        trick: [...trick, cardRef],
+      // remove card from hand
+      const players = context.players.map((hand, player) => {
+        if (player !== active) return hand;
+        return hand.filter((card) => !card.equal(event.card));
       });
+
+      // add card to trick
+      const trick = [...context.trick];
+      trick[active] = event.card;
+
+      return { players, trick };
     }),
-    cleanupTrick: enqueueActions(({ enqueue, context }) => {
-      const { trick, tricks, winning, tricksTaken } = context;
-      enqueue.assign({
-        active: winning,
-        trick: [],
-        tricks: [...tricks, trick],
-        tricksTaken: tricksTaken.map((v, i) => (i === winning ? v + 1 : v)),
+    cleanupTrick: assign(({ context }) => {
+      const { trick, trump } = context;
+      if (trump === null) throw new Error();
+
+      let winner = 0;
+      for (let i = 1; i < trick.length; i++) {
+        const card = trick[i];
+        const winningCard = trick[winner];
+        if (!(card && winningCard)) throw new Error();
+        if (card.compare(winningCard, trump) === 1) {
+          winner = i;
+        }
+      }
+
+      const taken = context.taken.map((count, i) => {
+        if (winner !== i) return count;
+        return count + 1;
       });
+
+      return {
+        active: winner,
+        trick: new Array(PLAYER_COUNT).fill(null),
+        tricks: context.tricks.concat(trick),
+        taken,
+      };
     }),
   },
   guards: {
@@ -130,14 +147,10 @@ export const euchreMachine = setup({
     canExchange: ({ context, event }) => {
       if (event.type !== "EXCHANGE") return false;
 
-      const { deck, players, dealer } = context;
-
-      // card must exist
-      const cardRef = deck.getCardRef(event.card);
-      if (!cardRef) return false;
+      const { players, dealer } = context;
 
       // card must be in hand
-      return players[dealer].has(cardRef);
+      return players[dealer].some((card) => card.equal(event.card));
     },
     canCallSuit: ({ context, event }) => {
       if (event.type !== "CALL_SUIT") return false;
@@ -149,44 +162,29 @@ export const euchreMachine = setup({
     canPlay: ({ context, event }) => {
       if (event.type !== "PLAY") return false;
 
-      const { deck, players, active, trick, trump } = context;
+      const { players, active, trick, leader, trump } = context;
       if (trump === null) return false;
-
-      // card must exist
-      const cardRef = deck.getCardRef(event.card);
-      if (!cardRef) return false;
 
       // card must be in hand
       const hand = players[active];
-      if (!hand.has(cardRef)) return false;
+      if (!hand.some((card) => card.equal(event.card))) return false;
 
-      // can play anything if leading
-      const led = trick[0];
+      // can play anything if no lead yet
+      const led = trick[leader];
       if (!led) return true;
 
       // can play anything if unable to follow suit
-      const cannotFollowSuit = Array.from(hand.values()).every(
-        (card) => !card.sameSuit(led, trump)
-      );
-      if (cannotFollowSuit) return true;
+      const isVoid = hand.every((card) => !card.sameSuit(led, trump));
+      if (isVoid) return true;
 
       // must follow suit
       return event.card.sameSuit(led, trump);
     },
     roundOver: ({ context }) => {
-      return context.tricks.length === HAND_SIZE;
+      return context.taken.reduce((a, b) => a + b) === HAND_SIZE;
     },
     trickOver: ({ context }) => {
-      const teamTricksTaken = context.tricksTaken.reduce(
-        (acc, tricks, i) => {
-          acc[i % (PLAYER_COUNT % 2)] += tricks;
-          return acc;
-        },
-        [0, 0]
-      );
-      if (teamTricksTaken[0] >= 3 && teamTricksTaken[1] >= 1) return true;
-      if (teamTricksTaken[1] >= 3 && teamTricksTaken[0] >= 1) return true;
-      return context.trick.length === PLAYER_COUNT;
+      return context.trick.every((card) => card !== null);
     },
   },
 }).createMachine({
@@ -211,13 +209,13 @@ export const euchreMachine = setup({
         PASS: [
           {
             guard: "isDealer",
-            actions: "nextPlayer",
+            actions: ["logEvent", "nextPlayer"],
             target: "open",
           },
-          { actions: "nextPlayer", target: "auction" },
+          { actions: ["logEvent", "nextPlayer"], target: "auction" },
         ],
         ORDER_UP: {
-          actions: "orderUp",
+          actions: ["logEvent", "orderUp"],
           target: "exchanging",
         },
       },
@@ -226,7 +224,7 @@ export const euchreMachine = setup({
       on: {
         EXCHANGE: {
           guard: "canExchange",
-          actions: "exchangeCard",
+          actions: ["logEvent", "exchangeCard"],
           target: "playing",
         },
       },
@@ -237,24 +235,24 @@ export const euchreMachine = setup({
         PASS: [
           {
             guard: "isDealer",
-            actions: "nextDealer",
+            actions: ["logEvent", "nextDealer"],
             target: "dealing",
           },
-          { actions: "nextPlayer", target: "open" },
+          { actions: ["logEvent", "nextPlayer"], target: "open" },
         ],
         CALL_SUIT: {
           guard: "canCallSuit",
-          actions: "callSuit",
+          actions: ["logEvent", "callSuit"],
           target: "playing",
         },
       },
     },
     playing: {
-      entry: "assignActivePlayer",
+      entry: "assignLead",
       on: {
         PLAY: {
           guard: "canPlay",
-          actions: ["playCard", "nextPlayer"],
+          actions: ["logEvent", "playCard", "nextPlayer"],
           target: "playing",
         },
       },
