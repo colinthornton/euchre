@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CardComponent from "./Card.vue";
-import { Rank, Suit, type Card } from "../game/cards";
+import { type Card } from "../game/cards";
 
 defineProps<{ revealed: Card }>();
 </script>
@@ -9,12 +9,10 @@ defineProps<{ revealed: Card }>();
   <div id="deck">
     <CardComponent
       v-for="i in 3"
-      :suit="Suit.Spades"
-      :rank="Rank.Ace"
       hidden
-      :style="`translate: z (calc(${i} * -2px))`"
+      :style="`transform: translateZ(calc(${i} * -2px))`"
     />
-    <CardComponent id="revealed" :suit="revealed.suit" :rank="revealed.rank" />
+    <CardComponent id="revealed" :card="revealed" disabled />
   </div>
 </template>
 
@@ -22,6 +20,7 @@ defineProps<{ revealed: Card }>();
 #deck {
   transform-style: preserve-3d;
   position: relative;
+  opacity: 0;
 }
 
 #deck .card {

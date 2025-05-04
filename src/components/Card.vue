@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { displayRank, displaySuit } from "../game/cards";
-import type { Suit, Rank } from "../game/cards";
+import { displayRank, displaySuit, Suit, Rank } from "../game/cards";
+import type { Card } from "../game/cards";
 
 const props = withDefaults(
   defineProps<{
-    suit: Suit;
-    rank: Rank;
+    card?: Card;
     disabled?: boolean;
     hidden?: boolean;
   }>(),
@@ -17,9 +16,19 @@ const emit = defineEmits<{
   select: [];
 }>();
 
-const selectable = computed(() => !(props.disabled || props.hidden));
+const selectable = computed(() => !(props.hidden || props.disabled));
 
 const tag = computed(() => (selectable.value ? "button" : "div"));
+
+const suit = computed(() => {
+  if (!props.card) return Suit.Spades;
+  return props.card.suit;
+});
+
+const rank = computed(() => {
+  if (!props.card) return Rank.Ace;
+  return props.card.rank;
+});
 
 function handleSelect() {
   if (!selectable.value) return;
@@ -32,8 +41,9 @@ function handleSelect() {
     :is="tag"
     :class="['card', suit, { hidden }]"
     @pointerdown="handleSelect"
+    :disabled="disabled"
   >
-    <div class="front">
+    <div class="front" v-if="!hidden">
       <div class="corner">
         <span class="rank">{{ displayRank(rank) }}</span>
         <span class="suit">{{ displaySuit(suit) }}</span>
@@ -56,6 +66,7 @@ function handleSelect() {
   position: relative;
   background: transparent;
   transform-style: preserve-3d;
+  user-select: none;
 }
 
 .front,
@@ -66,7 +77,6 @@ function handleSelect() {
   left: 0;
   width: 100%;
   height: 100%;
-  border: var(--border-size-1) solid var(--gray-4);
   border-radius: var(--radius-3);
   backface-visibility: hidden;
   transform-style: preserve-3d;
@@ -79,6 +89,7 @@ function handleSelect() {
 }
 
 .back {
+  border: var(--border-size-3) solid var(--gray-4);
   box-shadow: none;
   background: radial-gradient(var(--blue-11) 0, var(--blue-12) 70%),
     var(--noise-3);

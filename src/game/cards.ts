@@ -49,7 +49,7 @@ export class Card {
     return card.rank === this.rank && card.suit === this.suit;
   }
 
-  compare(card: Card, trump: Suit) {
+  compare(card: Card, trump: Suit | null) {
     if (this.equal(card)) {
       return 0;
     }
@@ -70,7 +70,8 @@ export class Card {
     return card.suit === this.suit;
   }
 
-  isTrump(trump: Suit) {
+  isTrump(trump: Suit | null) {
+    if (trump === null) return false;
     if (this.suit === trump) return true;
     if (this.rank !== Rank.Jack) return false;
     switch (trump) {
@@ -85,7 +86,7 @@ export class Card {
     }
   }
 
-  strength(trump: Suit) {
+  strength(trump: Suit | null) {
     switch (this.rank) {
       case Rank.Nine:
         return 0;

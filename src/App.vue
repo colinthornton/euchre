@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { createBrowserInspector } from "@statelyai/inspect";
 import { useMachine } from "@xstate/vue";
-import { animate, createTimeline, utils } from "animejs";
-import { computed, onMounted, useTemplateRef } from "vue";
+import { createTimeline } from "animejs";
+import { computed, onMounted } from "vue";
 import { euchreMachine } from "./game/euchre";
-import { Suit, suitIterator, Card, Rank } from "./game/cards";
+import { suitIterator, Card, Suit, displaySuit } from "./game/cards";
 import CardComponent from "./components/Card.vue";
 import Hand from "./components/Hand.vue";
 import Deck from "./components/Deck.vue";
+import { revealTop, revealHand } from "./animations";
+import { getTokenSourceMapRange } from "typescript";
 
-const { inspect } = createBrowserInspector();
-
-const { snapshot, send, actorRef } = useMachine(euchreMachine, { inspect });
+const { snapshot, send, actorRef } = useMachine(euchreMachine);
 
 actorRef.subscribe(async (snapshot) => {
   const {
@@ -19,11 +18,11 @@ actorRef.subscribe(async (snapshot) => {
   } = snapshot;
   if (active === 0) return;
 
-  const wait = Math.floor(Math.random() * 1000) + 500;
+  const wait = Math.floor(Math.random() * 1000) + 1000;
   await new Promise((r) => setTimeout(r, wait));
 
   if (snapshot.hasTag("bidding")) {
-    return send({ type: "PASS" });
+    return send({ type: "ORDER_UP" });
   }
 
   // exchange first card
@@ -58,61 +57,95 @@ function selectCard(card: Card) {
   }
 }
 
-const leftCard = computed(() => snapshot.value.context.trick[1]);
-const acrossCard = computed(() => snapshot.value.context.trick[2]);
-const rightCard = computed(() => snapshot.value.context.trick[3]);
+const showDeck = computed(() => {
+  const { value: state } = snapshot.value;
+  return ["auction", "open", "exchanging"].includes(state);
+});
 
-onMounted(async () => {
-  // reveal auction card animation
-  createTimeline()
-    .add("#revealed .front", { rotateY: "-180deg", duration: 0 })
-    .add("#revealed .back", { rotateY: "0deg", duration: 0 })
-    .add("#deck", { y: { from: "50dvh" }, duration: 400, ease: "out" })
-    .add("#revealed", {
-      z: [0, ($target) => utils.get($target, "--card-width"), 0],
-      ease: "in",
-      duration: 400,
-    })
-    .add(
-      "#revealed .front",
-      { rotateY: "0deg", ease: "in", duration: 400 },
-      "<<"
-    )
-    .add(
-      "#revealed .back",
-      { rotateY: "180deg", ease: "in", duration: 400 },
-      "<<"
-    );
+onMounted(() => {
+  createTimeline().sync(revealTop()).sync(revealHand(), "+=200");
 });
 </script>
 
 <template>
   <div class="layout">
-    <!-- <Hand :cards="snapshot.context.players[0]" @select-card="selectCard" /> -->
+    <Hand
+      :cards="snapshot.context.players[0]"
+      :trump="snapshot.context.trump"
+      :led="snapshot.context.trick[snapshot.context.leader]"
+      :active="
+        (snapshot.matches('playing') || snapshot.matches('exchanging')) &&
+        snapshot.context.active === 0
+      "
+      @select-card="selectCard"
+    />
     <section class="play-area">
       <div class="cardzone">
         <Deck
-          v-if="snapshot.context.revealed && snapshot.context.dealer === 0"
+          v-if="
+            showDeck &&
+            snapshot.context.revealed &&
+            snapshot.context.dealer === 0
+          "
           :revealed="snapshot.context.revealed"
         />
+        <CardComponent
+          v-if="snapshot.context.trick[0]"
+          :card="snapshot.context.trick[0]"
+          disabled
+        />
+        <div class="call"></div>
       </div>
       <div class="cardzone left">
         <Deck
-          v-if="snapshot.context.revealed && snapshot.context.dealer === 1"
+          v-if="
+            showDeck &&
+            snapshot.context.revealed &&
+            snapshot.context.dealer === 1
+          "
           :revealed="snapshot.context.revealed"
+        />
+        <CardComponent
+          v-if="snapshot.context.trick[1]"
+          :card="snapshot.context.trick[1]"
+          disabled
         />
       </div>
       <div class="cardzone across">
         <Deck
-          v-if="snapshot.context.revealed && snapshot.context.dealer === 2"
+          v-if="
+            showDeck &&
+            snapshot.context.revealed &&
+            snapshot.context.dealer === 2
+          "
           :revealed="snapshot.context.revealed"
+        />
+        <CardComponent
+          v-if="snapshot.context.trick[2]"
+          :card="snapshot.context.trick[2]"
+          disabled
         />
       </div>
       <div class="cardzone right">
         <Deck
-          v-if="snapshot.context.revealed && snapshot.context.dealer === 3"
+          v-if="
+            showDeck &&
+            snapshot.context.revealed &&
+            snapshot.context.dealer === 3
+          "
           :revealed="snapshot.context.revealed"
         />
+        <CardComponent
+          v-if="snapshot.context.trick[3]"
+          :card="snapshot.context.trick[3]"
+          disabled
+        />
+      </div>
+      <div
+        v-if="snapshot.context.trump"
+        :class="['trump', snapshot.context.trump]"
+      >
+        {{ displaySuit(snapshot.context.trump) }}
       </div>
     </section>
   </div>
@@ -139,6 +172,10 @@ onMounted(async () => {
   --card-height: var(--size-fluid-7);
 }
 
+.hand {
+  grid-area: hand;
+}
+
 .play-area {
   transform: rotateX(45deg);
   grid-area: play-area;
@@ -147,7 +184,7 @@ onMounted(async () => {
   place-items: center;
   grid-template:
     ". across ." var(--card-height)
-    "left . right" var(--card-width)
+    "left trump right" var(--card-width)
     ". self ." var(--card-height) / var(--card-height) var(--card-width) var(--card-height);
   gap: var(--size-2);
   transform-style: preserve-3d;
@@ -171,5 +208,15 @@ onMounted(async () => {
 .cardzone.right {
   grid-area: right;
   transform: rotate(-90deg);
+}
+
+.trump {
+  grid-area: trump;
+  font-size: var(--font-size-8);
+}
+
+.trump.hearts,
+.trump.diamonds {
+  color: var(--red-7);
 }
 </style>
