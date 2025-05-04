@@ -8,7 +8,6 @@ import CardComponent from "./components/Card.vue";
 import Hand from "./components/Hand.vue";
 import Deck from "./components/Deck.vue";
 import { revealTop, revealHand } from "./animations";
-import { getTokenSourceMapRange } from "typescript";
 
 const { snapshot, send, actorRef } = useMachine(euchreMachine);
 

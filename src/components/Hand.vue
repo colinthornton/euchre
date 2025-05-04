@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { Suit, type Card } from "../game/cards";
 import CardComponent from "./Card.vue";
+import { animate } from "animejs";
 
 const props = defineProps<{
   cards: Card[];
@@ -35,10 +36,18 @@ const sorted = computed(() => {
   }
   return cards;
 });
+
+function playCard(el: Element, done: () => void) {
+  if (!(el instanceof HTMLElement)) return;
+  animate(el, {
+    y: { to: "100%" },
+    duration: 5000,
+  }).then(done);
+}
 </script>
 
 <template>
-  <TransitionGroup tag="section" name="hand" id="hand" class="hand">
+  <TransitionGroup tag="section" name="card" id="hand" class="hand">
     <CardComponent
       v-for="(card, i) in sorted"
       :key="`${card.rank}-${card.suit}`"
@@ -55,31 +64,25 @@ const sorted = computed(() => {
 .hand {
   display: flex;
   margin-inline-start: calc(0.2 * var(--card-width));
-  transform: translateY(var(--card-height));
+  opacity: 0;
+  min-width: var(--card-width);
   position: relative;
 }
 
-.hand-move,
-.hand-enter-active,
-.hand-leave-active {
-  transition: all 0.5s ease-out;
-}
-.hand-enter-from,
-.hand-leave-to {
-  animation: leave-hand 0.5s ease-out;
-}
-.hand-leave-active {
-  position: absolute;
+.card-enter-active,
+.card-leave-active,
+.card-move {
+  transition: transform 400ms ease;
 }
 
-@keyframes leave-hand {
-  from {
-    transform: translateX(calc(var(--index) * calc(0.8 * var(--card-width))));
-  }
-  to {
-    transform: translateX(calc(var(--index) * calc(0.8 * var(--card-width))))
-      translateY(var(--card-height));
-  }
+.card-leave-active {
+  position: absolute;
+  left: calc(var(--index) * calc(0.6 * var(--card-width)));
+}
+
+.card-enter-from,
+.card-leave-to {
+  transform: translateY(100%);
 }
 
 .card {

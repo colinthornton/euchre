@@ -66,7 +66,10 @@ export class Card {
   }
 
   sameSuit(card: Card, trump: Suit) {
-    if (card.isTrump(trump) && this.isTrump(trump)) return true;
+    const cardIsTrump = card.isTrump(trump);
+    const thisIsTrump = this.isTrump(trump);
+    if (cardIsTrump && !thisIsTrump) return false;
+    if (!cardIsTrump && thisIsTrump) return false;
     return card.suit === this.suit;
   }
 

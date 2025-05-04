@@ -2,6 +2,10 @@ import { createTimeline } from "animejs";
 
 export const revealHand = () =>
   createTimeline().add("#hand", {
+    opacity: {
+      to: 1,
+      duration: 0,
+    },
     y: {
       from: ($target) => {
         const { height } = $target.getBoundingClientRect();

@@ -12,13 +12,9 @@ const props = withDefaults(
   { disabled: false, hidden: false }
 );
 
-const emit = defineEmits<{
+defineEmits<{
   select: [];
 }>();
-
-const selectable = computed(() => !(props.hidden || props.disabled));
-
-const tag = computed(() => (selectable.value ? "button" : "div"));
 
 const suit = computed(() => {
   if (!props.card) return Suit.Spades;
@@ -29,19 +25,13 @@ const rank = computed(() => {
   if (!props.card) return Rank.Ace;
   return props.card.rank;
 });
-
-function handleSelect() {
-  if (!selectable.value) return;
-  emit("select");
-}
 </script>
 
 <template>
-  <component
-    :is="tag"
+  <button
     :class="['card', suit, { hidden }]"
-    @pointerdown="handleSelect"
-    :disabled="disabled"
+    @pointerdown="$emit('select')"
+    :disabled="disabled || hidden"
   >
     <div class="front" v-if="!hidden">
       <div class="corner">
@@ -55,7 +45,7 @@ function handleSelect() {
       </div>
     </div>
     <div class="back"></div>
-  </component>
+  </button>
 </template>
 
 <style scoped>
