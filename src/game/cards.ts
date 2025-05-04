@@ -65,7 +65,7 @@ export class Card {
     return card.strength(trump) > this.strength(trump) ? -1 : 1;
   }
 
-  sameSuit(card: Card, trump: Suit) {
+  sameSuit(card: Card, trump: Suit | null) {
     const cardIsTrump = card.isTrump(trump);
     const thisIsTrump = this.isTrump(trump);
     if (cardIsTrump && !thisIsTrump) return false;

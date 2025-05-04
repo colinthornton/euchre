@@ -136,6 +136,7 @@ export const euchreMachine = setup({
 
       return {
         active: winner,
+        leader: winner,
         trick: new Array(PLAYER_COUNT).fill(null),
         tricks: context.tricks.concat(trick),
         taken,
@@ -174,7 +175,7 @@ export const euchreMachine = setup({
       if (!led) return true;
 
       // can play anything if unable to follow suit
-      const isVoid = hand.every((card) => !card.sameSuit(led, trump));
+      const isVoid = !hand.some((card) => card.sameSuit(led, trump));
       if (isVoid) return true;
 
       // must follow suit

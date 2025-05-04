@@ -57,6 +57,7 @@ const rank = computed(() => {
   background: transparent;
   transform-style: preserve-3d;
   user-select: none;
+  overflow: hidden;
 }
 
 .front,

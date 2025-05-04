@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import { Suit, type Card } from "../game/cards";
 import CardComponent from "./Card.vue";
-import { animate } from "animejs";
 
 const props = defineProps<{
   cards: Card[];
@@ -37,12 +36,17 @@ const sorted = computed(() => {
   return cards;
 });
 
-function playCard(el: Element, done: () => void) {
-  if (!(el instanceof HTMLElement)) return;
-  animate(el, {
-    y: { to: "100%" },
-    duration: 5000,
-  }).then(done);
+const isVoid = computed(() => {
+  const { cards, led, trump } = props;
+  if (led === null) return false;
+  return !cards.some((card) => card.sameSuit(led, trump));
+});
+
+function unplayable(card: Card): boolean {
+  if (!props.active) return true;
+  if (props.led === null) return false;
+  if (isVoid.value) return false;
+  return !card.sameSuit(props.led, props.trump);
 }
 </script>
 
@@ -53,8 +57,8 @@ function playCard(el: Element, done: () => void) {
       :key="`${card.rank}-${card.suit}`"
       :card="card"
       :style="`--index: ${i};`"
-      class="card"
-      :disabled="!active"
+      :class="{ unplayable: unplayable(card) }"
+      :disabled="!active || unplayable(card)"
       @click="$emit('selectCard', card)"
     />
   </TransitionGroup>
@@ -69,12 +73,6 @@ function playCard(el: Element, done: () => void) {
   position: relative;
 }
 
-.card-enter-active,
-.card-leave-active,
-.card-move {
-  transition: transform 400ms ease;
-}
-
 .card-leave-active {
   position: absolute;
   left: calc(var(--index) * calc(0.6 * var(--card-width)));
@@ -87,7 +85,28 @@ function playCard(el: Element, done: () => void) {
 
 .card {
   z-index: var(--index);
-  transform-origin: 50% 100%;
   margin-inline-start: calc(-0.2 * var(--card-width));
+  transition: transform 400ms ease;
+}
+
+.unplayable {
+  position: relative;
+  transform: translateY(calc(0.2 * var(--card-height)));
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  transition: background ease 400ms;
+  background: rgb(0, 0, 0, 0);
+}
+
+.unplayable::after {
+  background: rgb(0, 0, 0, 0.4);
 }
 </style>
