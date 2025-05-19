@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
 import CardComponent from "./Card.vue";
 import { type Card } from "../game/cards";
+import { revealTop } from "../animations";
 
 defineProps<{ revealed: Card }>();
+
+onMounted(() => {
+  revealTop();
+});
 </script>
 
 <template>

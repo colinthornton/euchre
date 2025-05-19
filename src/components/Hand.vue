@@ -68,19 +68,8 @@ function unplayable(card: Card): boolean {
 .hand {
   display: flex;
   margin-inline-start: calc(0.2 * var(--card-width));
-  opacity: 0;
   min-width: var(--card-width);
   position: relative;
-}
-
-.card-leave-active {
-  position: absolute;
-  left: calc(var(--index) * calc(0.6 * var(--card-width)));
-}
-
-.card-enter-from,
-.card-leave-to {
-  transform: translateY(100%);
 }
 
 .card {
@@ -108,5 +97,19 @@ function unplayable(card: Card): boolean {
 
 .unplayable::after {
   background: rgb(0, 0, 0, 0.4);
+}
+
+.card-enter-active {
+  transition-delay: 200ms;
+}
+
+.card-leave-active {
+  position: absolute;
+  left: calc(var(--index) * calc(0.6 * var(--card-width)));
+}
+
+.card-enter-from,
+.card-leave-to {
+  transform: translateY(100%);
 }
 </style>

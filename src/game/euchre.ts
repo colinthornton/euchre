@@ -1,11 +1,12 @@
 import { assign, setup } from "xstate";
-import { Deck } from "./cards";
 import { Card, type Suit } from "./cards";
 
-const PLAYER_COUNT = 4;
-const HAND_SIZE = 5;
+export const PLAYER_COUNT = 4;
+export const HAND_SIZE = 5;
 
 type Event =
+  | { type: "CHOOSE_DEALER"; dealer: number }
+  | { type: "DEAL"; players: Hand[]; revealed: Card }
   | { type: "PASS" }
   | { type: "ORDER_UP" }
   | { type: "CALL_SUIT"; suit: Suit }
@@ -16,7 +17,7 @@ type Hand = Card[];
 type Trick = (Card | null)[];
 
 const initialContext = {
-  events: [] as Event[],
+  events: [] as (Event & { actor: number })[],
   dealer: 0, // index of dealer
   players: [] as Hand[],
   revealed: null as Card | null,
@@ -36,22 +37,21 @@ export const euchreMachine = setup({
   },
   actions: {
     logEvent: assign({
-      events: ({ context, event }) => context.events.concat(event),
+      events: ({ context, event }) =>
+        context.events.concat({ ...event, actor: context.active }),
     }),
-    chooseDealer: assign({
-      dealer: () => Math.floor(Math.random() * PLAYER_COUNT),
-    }),
-    deal: assign(({ context }) => {
-      const deck = new Deck();
-      deck.shuffle();
-      const players = new Array(PLAYER_COUNT)
-        .fill(undefined)
-        .map(() => deck.deal(HAND_SIZE));
-      const revealed = deck.revealTop();
+    chooseDealer: assign(({ event }) => {
+      if (event.type !== "CHOOSE_DEALER") throw new Error();
       return {
-        players,
-        active: (context.dealer + 1) % PLAYER_COUNT,
-        revealed,
+        dealer: event.dealer,
+        active: event.dealer,
+      };
+    }),
+    deal: assign(({ event }) => {
+      if (event.type !== "DEAL") throw new Error();
+      return {
+        players: event.players,
+        revealed: event.revealed,
       };
     }),
     nextPlayer: assign({
@@ -193,15 +193,19 @@ export const euchreMachine = setup({
   initial: "start",
   states: {
     start: {
-      always: {
-        actions: "chooseDealer",
-        target: "dealing",
+      on: {
+        CHOOSE_DEALER: {
+          actions: "chooseDealer",
+          target: "dealing",
+        },
       },
     },
     dealing: {
-      always: {
-        actions: "deal",
-        target: "auction",
+      on: {
+        DEAL: {
+          actions: ["logEvent", "deal", "nextPlayer"],
+          target: "auction",
+        },
       },
     },
     auction: {
