@@ -1,10 +1,11 @@
 import { assign, setup } from "xstate";
 import { Card, type Suit } from "./cards";
+import Hand from "../components/Hand.vue";
 
 export const PLAYER_COUNT = 4;
 export const HAND_SIZE = 5;
 
-type Event =
+export type ServerEvent =
   | { type: "CHOOSE_DEALER"; dealer: number }
   | { type: "DEAL"; players: Hand[]; revealed: Card }
   | { type: "PASS" }
@@ -16,29 +17,28 @@ type Event =
 type Hand = Card[];
 type Trick = (Card | null)[];
 
-const initialContext = {
-  events: [] as (Event & { actor: number })[],
+const initialServerContext = {
+  events: [] as ServerEvent[],
   dealer: 0, // index of dealer
   players: [] as Hand[],
   revealed: null as Card | null,
   active: 0, // index of active player
   trump: null as Suit | null,
-  leader: 0, // index of who led the trick
+  led: null as Card | null,
   trick: new Array(PLAYER_COUNT).fill(null) as Trick, // current trick
   tricks: [] as Trick[], // finished tricks
   taken: new Array<number>(PLAYER_COUNT).fill(0), // tricks taken by each player in current round
   score: new Array<number>(PLAYER_COUNT / 2).fill(0),
 };
 
-export const euchreMachine = setup({
+export const euchreServerMachine = setup({
   types: {
-    context: {} as typeof initialContext,
-    events: {} as Event,
+    context: {} as typeof initialServerContext,
+    events: {} as ServerEvent,
   },
   actions: {
     logEvent: assign({
-      events: ({ context, event }) =>
-        context.events.concat({ ...event, actor: context.active }),
+      events: ({ context, event }) => context.events.concat(event),
     }),
     chooseDealer: assign(({ event }) => {
       if (event.type !== "CHOOSE_DEALER") throw new Error();
@@ -90,18 +90,13 @@ export const euchreMachine = setup({
     nextDealer: assign({
       dealer: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
     }),
-    assignLead: assign(({ context }) => {
-      const leader = (context.dealer + 1) % PLAYER_COUNT;
-      return {
-        active: leader,
-        leader,
-      };
+    assignLead: assign({
+      active: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
     }),
     playCard: assign(({ context, event }) => {
       if (event.type !== "PLAY") throw new Error();
 
-      const { trump, active } = context;
-      if (trump === null) throw new Error();
+      const { active, led } = context;
 
       // remove card from hand
       const players = context.players.map((hand, player) => {
@@ -110,10 +105,13 @@ export const euchreMachine = setup({
       });
 
       // add card to trick
-      const trick = [...context.trick];
-      trick[active] = event.card;
+      const trick = context.trick.concat(event.card);
 
-      return { players, trick };
+      return {
+        players,
+        led: led ?? event.card,
+        trick,
+      };
     }),
     cleanupTrick: assign(({ context }) => {
       const { trick, trump } = context;
@@ -136,7 +134,7 @@ export const euchreMachine = setup({
 
       return {
         active: winner,
-        leader: winner,
+        led: null,
         trick: new Array(PLAYER_COUNT).fill(null),
         tricks: context.tricks.concat(trick),
         taken,
@@ -163,7 +161,7 @@ export const euchreMachine = setup({
     canPlay: ({ context, event }) => {
       if (event.type !== "PLAY") return false;
 
-      const { players, active, trick, leader, trump } = context;
+      const { players, active, led, trump } = context;
       if (trump === null) return false;
 
       // card must be in hand
@@ -171,7 +169,6 @@ export const euchreMachine = setup({
       if (!hand.some((card) => card.equal(event.card))) return false;
 
       // can play anything if no lead yet
-      const led = trick[leader];
       if (!led) return true;
 
       // can play anything if unable to follow suit
@@ -189,7 +186,285 @@ export const euchreMachine = setup({
     },
   },
 }).createMachine({
-  context: initialContext,
+  context: initialServerContext,
+  initial: "start",
+  states: {
+    start: {
+      on: {
+        CHOOSE_DEALER: {
+          actions: ["logEvent", "chooseDealer"],
+          target: "dealing",
+        },
+      },
+    },
+    dealing: {
+      on: {
+        DEAL: {
+          actions: ["logEvent", "deal", "nextPlayer"],
+          target: "auction",
+        },
+      },
+    },
+    auction: {
+      tags: ["bidding"],
+      on: {
+        PASS: [
+          {
+            guard: "isDealer",
+            actions: ["logEvent", "nextPlayer"],
+            target: "open",
+          },
+          { actions: ["logEvent", "nextPlayer"], target: "auction" },
+        ],
+        ORDER_UP: {
+          actions: ["logEvent", "orderUp"],
+          target: "exchanging",
+        },
+      },
+    },
+    exchanging: {
+      on: {
+        EXCHANGE: {
+          guard: "canExchange",
+          actions: ["logEvent", "exchangeCard"],
+          target: "playing",
+        },
+      },
+    },
+    open: {
+      tags: ["bidding"],
+      on: {
+        PASS: [
+          {
+            guard: "isDealer",
+            actions: ["logEvent", "nextDealer"],
+            target: "dealing",
+          },
+          { actions: ["logEvent", "nextPlayer"], target: "open" },
+        ],
+        CALL_SUIT: {
+          guard: "canCallSuit",
+          actions: ["logEvent", "callSuit"],
+          target: "playing",
+        },
+      },
+    },
+    playing: {
+      entry: "assignLead",
+      on: {
+        PLAY: {
+          guard: "canPlay",
+          actions: ["logEvent", "playCard", "nextPlayer"],
+          target: "playing",
+        },
+      },
+      always: [
+        {
+          guard: "roundOver",
+          target: "cleanup",
+        },
+        {
+          guard: "trickOver",
+          actions: "cleanupTrick",
+          target: "playing",
+        },
+      ],
+    },
+    cleanup: {},
+  },
+});
+
+export type ClientEvent =
+  | { type: "CHOOSE_DEALER"; dealer: number }
+  | { type: "DEAL"; hand: Hand; revealed: Card }
+  | { type: "PASS" }
+  | { type: "ORDER_UP" }
+  | { type: "CALL_SUIT"; suit: Suit }
+  | { type: "EXCHANGE"; card?: Card }
+  | { type: "PLAY"; card: Card };
+
+const initialClientContext = {
+  events: [] as ClientEvent[],
+  dealer: 0,
+  player: 0,
+  hand: [] as Hand,
+  revealed: null as Card | null,
+  active: 0,
+  trump: null as Suit | null,
+  exchanged: false,
+  led: null as Card | null,
+  trick: new Array(PLAYER_COUNT).fill(null) as Trick,
+  tricks: [] as Trick[], // finished tricks
+  taken: new Array<number>(PLAYER_COUNT).fill(0),
+  score: new Array<number>(PLAYER_COUNT / 2).fill(0),
+};
+
+/**
+ * State machine used to track the game state from a single
+ * player's perspective. They do not have knowledge of hidden
+ * information like cards in other players.
+ */
+export const euchreClientMachine = setup({
+  types: {
+    context: {} as typeof initialClientContext,
+    events: {} as ClientEvent,
+    input: {} as {
+      player: number;
+    },
+  },
+  actions: {
+    logEvent: assign({
+      events: ({ context, event }) => context.events.concat(event),
+    }),
+    chooseDealer: assign(({ event }) => {
+      if (event.type !== "CHOOSE_DEALER") throw new Error();
+      return {
+        dealer: event.dealer,
+        active: event.dealer,
+      };
+    }),
+    deal: assign(({ event }) => {
+      if (event.type !== "DEAL") throw new Error();
+      return {
+        hand: event.hand,
+        revealed: event.revealed,
+      };
+    }),
+    nextPlayer: assign({
+      active: ({ context }) => (context.active + 1) % PLAYER_COUNT,
+    }),
+    orderUp: assign({
+      active: ({ context }) => context.dealer,
+      trump: ({ context }) => {
+        if (!context.revealed) throw new Error();
+
+        return context.revealed.suit;
+      },
+    }),
+    exchangeCard: assign(({ context, event }) => {
+      if (event.type !== "EXCHANGE") throw new Error();
+
+      if (context.active !== context.player) {
+        return {
+          exchanged: true,
+        };
+      }
+
+      if (!event.card) throw new Error();
+      if (!context.revealed) throw new Error();
+      return {
+        hand: context.hand
+          .filter((card) => card.equal(event.card!))
+          .concat(context.revealed),
+        exchanged: true,
+      };
+    }),
+    nextDealer: assign({
+      dealer: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
+    }),
+    callSuit: assign({
+      trump: ({ event }) => {
+        if (event.type !== "CALL_SUIT") throw new Error();
+        return event.suit;
+      },
+    }),
+    assignLead: assign({
+      active: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
+    }),
+    playCard: assign(({ context, event }) => {
+      if (event.type !== "PLAY") throw new Error();
+
+      const { active, player, hand, led } = context;
+
+      if (active !== player) {
+        return {
+          trick: context.trick.concat(event.card),
+        };
+      }
+
+      return {
+        hand: hand.filter((card) => !card.equal(event.card)),
+        led: led ?? event.card,
+        trick: context.trick.concat(event.card),
+      };
+    }),
+    cleanupTrick: assign(({ context }) => {
+      const { trick, trump } = context;
+      if (trump === null) throw new Error();
+
+      let winner = 0;
+      for (let i = 1; i < trick.length; i++) {
+        const card = trick[i];
+        const winningCard = trick[winner];
+        if (!(card && winningCard)) throw new Error();
+        if (card.compare(winningCard, trump) === 1) {
+          winner = i;
+        }
+      }
+
+      const taken = context.taken.map((count, i) => {
+        if (winner !== i) return count;
+        return count + 1;
+      });
+
+      return {
+        active: winner,
+        led: null,
+        trick: new Array(PLAYER_COUNT).fill(null),
+        tricks: context.tricks.concat(trick),
+        taken,
+      };
+    }),
+  },
+  guards: {
+    isDealer: ({ context }) => context.active === context.dealer,
+    canExchange: ({ context, event }) => {
+      if (event.type !== "EXCHANGE") return false;
+      // other players can exchange freely
+      if (context.active !== context.player) return true;
+      if (!event.card) return false;
+      // card must be in hand
+      return context.hand.some((card) => card.equal(event.card!));
+    },
+    canCallSuit: ({ context, event }) => {
+      if (event.type !== "CALL_SUIT") return false;
+      if (!context.revealed) return false;
+      // cannot call same suit as revelaed card
+      return event.suit !== context.revealed.suit;
+    },
+    canPlay: ({ context, event }) => {
+      if (event.type !== "PLAY") return false;
+
+      const { hand, active, player, led, trump } = context;
+      if (trump === null) return false;
+
+      // other players can play any card you don't have
+      if (active !== player) {
+        return hand.every((card) => !card.equal(event.card));
+      }
+
+      // card must be in hand
+      if (!hand.some((card) => card.equal(event.card))) return false;
+
+      // can play anything if no lead yet
+      if (!led) return true;
+
+      // can play anything if unable to follow suit
+      const isVoid = !hand.some((card) => card.sameSuit(led, trump));
+      if (isVoid) return true;
+
+      // must follow suit
+      return event.card.sameSuit(led, trump);
+    },
+    roundOver: ({ context }) => {
+      return context.taken.reduce((a, b) => a + b) === HAND_SIZE;
+    },
+    trickOver: ({ context }) => {
+      return context.trick.every((card) => card !== null);
+    },
+  },
+}).createMachine({
+  context: ({ input }) => Object.assign(initialClientContext, input),
   initial: "start",
   states: {
     start: {

@@ -4,33 +4,27 @@ import { suitIterator, Card, displaySuit } from "./game/cards";
 import CardComponent from "./components/Card.vue";
 import Hand from "./components/Hand.vue";
 import Deck from "./components/Deck.vue";
-import { useServerEuchre } from "./composables/useServerEuchre";
-import { useUIState } from "./composables/useUIState";
+import { useEuchreClient } from "./composables/useEuchreClient";
+import { EuchreServer } from "./game/server";
+import Debug from "./components/Debug.vue";
 
-const { context: serverContext, send } = useServerEuchre();
-const { context, next } = useUIState(serverContext);
+const { state, context, enqueue, next } = useEuchreClient();
 
-watch(context, (value) => console.log(value), { immediate: true });
-
-// suits that can be selected for trump
-const openSuits = computed(() => {
-  const unavailable = context.value.revealed?.suit;
-  return suitIterator().filter((suit) => suit !== unavailable);
+const server = new EuchreServer(0);
+server.listen((event) => {
+  console.log("server", event);
+  enqueue(event);
 });
+server.start();
 
 function selectCard(card: Card) {
-  switch (context.value.state) {
+  switch (state.value) {
     case "exchanging":
-      return send({ type: "EXCHANGE", card });
+      return server.send({ type: "EXCHANGE", card });
     case "playing":
-      return send({ type: "PLAY", card });
+      return server.send({ type: "PLAY", card });
   }
 }
-
-const showDeck = computed(() => {
-  const { state } = context.value;
-  return ["auction", "open", "exchanging"].includes(state);
-});
 </script>
 
 <template>
@@ -38,64 +32,21 @@ const showDeck = computed(() => {
     <Hand
       :cards="context.hand"
       :trump="context.trump"
-      :led="context.trick[context.leader]"
+      :led="context.led"
       :active="
-        (context.state === 'playing' || context.state === 'exchanging') &&
-        context.active === 0
+        (state === 'playing' || state === 'exchanging') && context.active === 0
       "
       @select-card="selectCard"
     />
     <section class="play-area">
-      <div class="cardzone">
-        <Deck
-          v-if="showDeck && context.revealed && context.dealer === 0"
-          :revealed="context.revealed"
-        />
-        <CardComponent
-          v-if="context.trick[0]"
-          :card="context.trick[0]"
-          disabled
-        />
-        <div class="call"></div>
-      </div>
-      <div class="cardzone left">
-        <Deck
-          v-if="showDeck && context.revealed && context.dealer === 1"
-          :revealed="context.revealed"
-        />
-        <CardComponent
-          v-if="context.trick[1]"
-          :card="context.trick[1]"
-          disabled
-        />
-      </div>
-      <div class="cardzone across">
-        <Deck
-          v-if="showDeck && context.revealed && context.dealer === 2"
-          :revealed="context.revealed"
-        />
-        <CardComponent
-          v-if="context.trick[2]"
-          :card="context.trick[2]"
-          disabled
-        />
-      </div>
-      <div class="cardzone right">
-        <Deck
-          v-if="showDeck && context.revealed && context.dealer === 3"
-          :revealed="context.revealed"
-        />
-        <CardComponent
-          v-if="context.trick[3]"
-          :card="context.trick[3]"
-          disabled
-        />
-      </div>
-      <div v-if="context.trump" :class="['trump', context.trump]">
-        {{ displaySuit(context.trump) }}
-      </div>
+      <div class="cardzone"></div>
+      <div class="cardzone left"></div>
+      <div class="cardzone across"></div>
+      <div class="cardzone right"></div>
     </section>
   </div>
+
+  <Debug />
 </template>
 
 <style scoped>
