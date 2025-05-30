@@ -15,9 +15,13 @@ export async function decideMove(
   const snapshot = client.getSnapshot();
   const { context } = snapshot;
 
-  await new Promise((r) => setTimeout(r, 1000));
+  await new Promise((r) => setTimeout(r, 500));
 
-  if (snapshot.hasTag("bidding")) {
+  if (snapshot.matches("auction")) {
+    return { type: "PASS" };
+  }
+
+  if (snapshot.matches("open")) {
     return { type: "PASS" };
   }
 
@@ -38,20 +42,13 @@ export async function decideMove(
       return { type: "PLAY", card: playableCards[0] };
     }
 
-    const seenCards = [
-      context.hand,
-      context.revealed,
-      context.trick,
-      context.tricks,
-    ]
-      .flat(2)
-      .filter((card) => card !== null);
-
     const results = new Map<Card, number>();
     const maxSimulations = 1000 + (1000 % playableCards.length);
     for (let i = 0; i < maxSimulations; i++) {
+      const client = getClient(events, player);
+      const hands = dealHands(client);
       const card = playableCards[i % playableCards.length];
-      const result = sampleRandomTrick(events, player, seenCards, card);
+      const result = playRound(client, player, hands, card);
       results.set(card, (results.get(card) ?? 0) + result);
     }
     console.log(results);
@@ -84,34 +81,50 @@ function getClient(events: ClientEvent[], player: number) {
   return client;
 }
 
-function sampleRandomTrick(
-  events: ClientEvent[],
-  player: number,
-  seenCards: Card[],
-  initialCard: Card
-): 0 | 1 {
-  const client = getClient(events, player);
-  const before = client.getSnapshot().context;
+/**
+ * deal out cards randomly from those not seen yet seen
+ */
+function dealHands(client: ReturnType<typeof getClient>) {
+  const { context } = client.getSnapshot();
 
-  // deal out randomly from unseen cards
+  const seenCards = [
+    context.hand,
+    context.revealed,
+    context.trick,
+    context.tricks,
+  ]
+    .flat(2)
+    .filter((card) => card !== null);
   const deck = new Deck(seenCards).shuffle();
+
   const hands = new Map<number, Card[]>();
   for (let i = 1; i < PLAYER_COUNT; i++) {
-    const player = (before.active + i) % PLAYER_COUNT;
-    const hasPlayed = before.trick[player] !== null;
-    const isDealer = player === before.dealer;
-    const hasExchanged = before.exchanged;
+    const player = (context.active + i) % PLAYER_COUNT;
+    const hasPlayed = context.trick[player] !== null;
+    const isDealer = player === context.dealer;
+    const hasExchanged = context.exchanged;
 
-    const toDeal = hasPlayed ? before.hand.length - 1 : before.hand.length;
+    const toDeal = hasPlayed ? context.hand.length - 1 : context.hand.length;
 
     let hand: Card[];
     if (isDealer && hasExchanged) {
-      hand = deck.deal(toDeal - 1).concat(before.revealed!);
+      hand = deck.deal(toDeal - 1).concat(context.revealed!);
     } else {
       hand = deck.deal(toDeal);
     }
     hands.set(player, hand);
   }
+
+  return hands;
+}
+
+function playRound(
+  client: ReturnType<typeof getClient>,
+  player: number,
+  hands: Map<number, Card[]>,
+  initialCard?: Card
+): 0 | 1 {
+  const before = client.getSnapshot().context;
 
   // play out the round
   while (client.getSnapshot().matches("playing")) {
@@ -120,6 +133,7 @@ function sampleRandomTrick(
 
     if (
       active === player &&
+      initialCard &&
       snapshot.can({ type: "PLAY", card: initialCard })
     ) {
       client.send({ type: "PLAY", card: initialCard });
