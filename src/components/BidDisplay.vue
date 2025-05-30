@@ -74,7 +74,7 @@ const text = computed(() => {
   background: var(--gray-0);
   border-radius: var(--radius-1);
   padding: var(--size-3);
-  animation: fade-in-out linear 3s forwards;
+  animation: fade-in-out linear 1s forwards;
 }
 
 .left {

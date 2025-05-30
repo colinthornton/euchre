@@ -21,7 +21,7 @@ const sorted = computed(() => {
       props.trump && card.isTrump(props.trump) ? props.trump : card.suit;
     const cards = suits.get(suit) ?? [];
     cards.push(card);
-    cards.sort((a, b) => a.compare(b, props.trump, null));
+    cards.sort((a, b) => b.compare(a, props.trump, null));
     suits.set(suit, cards);
   }
 

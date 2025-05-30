@@ -46,5 +46,6 @@ const openSuits = computed(() => {
 .bid {
   display: flex;
   justify-content: center;
+  gap: var(--size-1);
 }
 </style>

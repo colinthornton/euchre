@@ -352,7 +352,7 @@ export const euchreClientMachine = setup({
       if (!context.revealed) throw new Error();
       return {
         hand: context.hand
-          .filter((card) => card.equal(event.card!))
+          .filter((card) => !card.equal(event.card!))
           .concat(context.revealed),
         exchanged: true,
       };
@@ -380,6 +380,7 @@ export const euchreClientMachine = setup({
 
       if (active !== player) {
         return {
+          led: led ?? event.card,
           trick,
         };
       }

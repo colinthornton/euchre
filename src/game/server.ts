@@ -82,7 +82,10 @@ export class EuchreServer {
         return callback({ type: "DEAL", hand, revealed: event.revealed });
       }
 
-      if (event.type === "EXCHANGE" && context.active !== this.player) {
+      if (
+        event.type === "EXCHANGE" &&
+        (context.active - 1) % PLAYER_COUNT !== this.player
+      ) {
         return callback({ type: "EXCHANGE" });
       }
 
