@@ -132,7 +132,9 @@ export class Deck {
     for (const suit of suits()) {
       for (const rank of ranks()) {
         const card = new Card(suit, rank);
-        if (this.removed.some(card.equal)) continue;
+        if (this.removed.some((removedCard) => card.equal(removedCard))) {
+          continue;
+        }
         this.deck.push(card);
       }
     }
@@ -146,6 +148,7 @@ export class Deck {
       this.deck[j] = this.deck[i];
       this.deck[i] = temp;
     }
+    return this;
   }
 
   deal(n: number) {

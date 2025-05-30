@@ -5,7 +5,6 @@ import {
   HAND_SIZE,
   type ClientEvent,
   type ServerEvent,
-  euchreClientMachine,
 } from "../game/euchre";
 import { Deck } from "../game/cards";
 import { decideMove } from "./bot";
@@ -44,8 +43,12 @@ export class EuchreServer {
       const clientEvents = snapshot.context.events.map((event) =>
         this.clientEventFrom(event, snapshot.context, active)
       );
+      console.log(clientEvents);
       const botMove = await decideMove(clientEvents, active);
-      if (botMove) this.server.send(botMove);
+      console.log("botMove", botMove);
+      if (botMove && snapshot.can(botMove)) {
+        this.server.send(botMove);
+      }
     });
 
     this.server.start();
