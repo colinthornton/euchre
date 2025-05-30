@@ -1,11 +1,14 @@
-import { createActor } from "xstate";
+import { createActor, type ContextFrom } from "xstate";
 import {
   euchreServerMachine,
   PLAYER_COUNT,
   HAND_SIZE,
   type ClientEvent,
+  type ServerEvent,
+  euchreClientMachine,
 } from "../game/euchre";
 import { Deck } from "../game/cards";
+import { decideMove } from "./bot";
 
 export class EuchreServer {
   private server: ReturnType<typeof createActor<typeof euchreServerMachine>>;
@@ -34,36 +37,21 @@ export class EuchreServer {
         return this.server.send({ type: "DEAL", players, revealed });
       }
 
+      const active = snapshot.context.active;
+      if (active === this.player) return;
+
       // Bot AI
-      const {
-        context: { players, active },
-      } = snapshot;
-      if (active === 0) return;
-
-      const wait = Math.floor(Math.random() * 1000) + 1000;
-      await new Promise((r) => setTimeout(r, wait));
-
-      if (snapshot.hasTag("bidding")) {
-        return this.server.send({ type: "PASS" });
-      }
-
-      // exchange first card
-      if (snapshot.matches("exchanging")) {
-        return this.server.send({
-          type: "EXCHANGE",
-          card: players[active][0],
-        });
-      }
-
-      // play first playable card in hand
-      if (snapshot.matches("playing")) {
-        const hand = players[active];
-        const playable = hand.find((card) =>
-          snapshot.can({ type: "PLAY", card })
+      const clientMachine = createActor(euchreClientMachine, {
+        input: { player: active },
+      }).start();
+      // replay events to create client snapshot
+      for (const event of snapshot.context.events) {
+        clientMachine.send(
+          this.clientEventFrom(event, snapshot.context, active)
         );
-        if (!playable) throw new Error();
-        this.server.send({ type: "PLAY", card: playable });
       }
+      const botMove = await decideMove(clientMachine.getSnapshot());
+      if (botMove) this.server.send(botMove);
     });
 
     this.server.start();
@@ -75,21 +63,9 @@ export class EuchreServer {
       const { events } = context;
 
       if (events.length === 0) return;
-      const event = events[events.length - 1];
-
-      if (event.type === "DEAL") {
-        const hand = event.players[this.player];
-        return callback({ type: "DEAL", hand, revealed: event.revealed });
-      }
-
-      if (
-        event.type === "EXCHANGE" &&
-        (context.active - 1) % PLAYER_COUNT !== this.player
-      ) {
-        return callback({ type: "EXCHANGE" });
-      }
-
-      callback(event);
+      const serverEvent = events[events.length - 1];
+      const clientEvent = this.clientEventFrom(serverEvent, context);
+      callback(clientEvent);
     });
   }
 
@@ -104,5 +80,25 @@ export class EuchreServer {
     }
 
     this.server.send(event);
+  }
+
+  private clientEventFrom(
+    event: ServerEvent,
+    context: ContextFrom<typeof euchreServerMachine>,
+    player = this.player
+  ): ClientEvent {
+    if (event.type === "DEAL") {
+      const hand = event.players[player];
+      return { type: "DEAL", hand, revealed: event.revealed };
+    }
+
+    if (
+      event.type === "EXCHANGE" &&
+      (context.active - 1) % PLAYER_COUNT !== player
+    ) {
+      return { type: "EXCHANGE" };
+    }
+
+    return event;
   }
 }
