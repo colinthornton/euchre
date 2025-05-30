@@ -1,15 +1,18 @@
-import type { SnapshotFrom } from "xstate";
-import type { euchreClientMachine } from "./euchre";
+import { createActor } from "xstate";
+import { euchreClientMachine, type ClientEvent } from "./euchre";
 import { type Card } from "./cards";
 
 export async function decideMove(
-  snapshot: SnapshotFrom<typeof euchreClientMachine>
+  events: ClientEvent[],
+  player: number
 ): Promise<
   | { type: "PASS" }
   | { type: "EXCHANGE"; card: Card }
   | { type: "PLAY"; card: Card }
   | undefined
 > {
+  const client = getClient(events, player);
+  const snapshot = client.getSnapshot();
   const { context } = snapshot;
 
   await new Promise((r) => setTimeout(r, 1000));
@@ -34,4 +37,14 @@ export async function decideMove(
     if (!playable) throw new Error();
     return { type: "PLAY", card: playable };
   }
+}
+
+function getClient(events: ClientEvent[], player: number) {
+  const client = createActor(euchreClientMachine, {
+    input: { player },
+  }).start();
+  for (const event of events) {
+    client.send(event);
+  }
+  return client;
 }

@@ -41,16 +41,10 @@ export class EuchreServer {
       if (active === this.player) return;
 
       // Bot AI
-      const clientMachine = createActor(euchreClientMachine, {
-        input: { player: active },
-      }).start();
-      // replay events to create client snapshot
-      for (const event of snapshot.context.events) {
-        clientMachine.send(
-          this.clientEventFrom(event, snapshot.context, active)
-        );
-      }
-      const botMove = await decideMove(clientMachine.getSnapshot());
+      const clientEvents = snapshot.context.events.map((event) =>
+        this.clientEventFrom(event, snapshot.context, active)
+      );
+      const botMove = await decideMove(clientEvents, active);
       if (botMove) this.server.send(botMove);
     });
 
