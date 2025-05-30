@@ -48,11 +48,11 @@ export async function decideMove(
       .filter((card) => card !== null);
 
     const results = new Map<Card, number>();
-    for (const card of playableCards) {
-      for (let i = 0; i < 1000; i++) {
-        const result = sampleRandomTrick(events, player, seenCards, card);
-        results.set(card, (results.get(card) ?? 0) + result);
-      }
+    const maxSimulations = 1000 + (1000 % playableCards.length);
+    for (let i = 0; i < maxSimulations; i++) {
+      const card = playableCards[i % playableCards.length];
+      const result = sampleRandomTrick(events, player, seenCards, card);
+      results.set(card, (results.get(card) ?? 0) + result);
     }
     console.log(results);
     const [card] = Array.from(results.entries()).reduce(
@@ -72,7 +72,14 @@ function getClient(events: ClientEvent[], player: number) {
   });
   client.start();
   for (const event of events) {
-    client.send(event);
+    if (client.getSnapshot().can(event)) {
+      client.send(event);
+    } else {
+      console.log("can't send", event);
+      console.log(client.getSnapshot().value);
+      console.log(client.getSnapshot().context);
+      throw new Error();
+    }
   }
   return client;
 }

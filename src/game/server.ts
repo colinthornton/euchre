@@ -90,6 +90,7 @@ export class EuchreServer {
     }
 
     if (
+      player === this.player &&
       event.type === "EXCHANGE" &&
       (context.active - 1) % PLAYER_COUNT !== player
     ) {
