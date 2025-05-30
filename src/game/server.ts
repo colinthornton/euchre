@@ -44,7 +44,7 @@ export class EuchreServer {
       await new Promise((r) => setTimeout(r, wait));
 
       if (snapshot.hasTag("bidding")) {
-        return this.server.send({ type: "ORDER_UP" });
+        return this.server.send({ type: "PASS" });
       }
 
       // exchange first card

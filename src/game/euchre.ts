@@ -105,7 +105,9 @@ export const euchreServerMachine = setup({
       });
 
       // add card to trick
-      const trick = context.trick.concat(event.card);
+      const trick = context.trick.map((card, i) =>
+        i === active ? event.card : card
+      );
 
       return {
         players,
@@ -114,18 +116,14 @@ export const euchreServerMachine = setup({
       };
     }),
     cleanupTrick: assign(({ context }) => {
-      const { trick, trump } = context;
+      const { trick, trump, led } = context;
       if (trump === null) throw new Error();
+      if (led === null) throw new Error();
 
-      let winner = 0;
-      for (let i = 1; i < trick.length; i++) {
-        const card = trick[i];
-        const winningCard = trick[winner];
-        if (!(card && winningCard)) throw new Error();
-        if (card.compare(winningCard, trump) === 1) {
-          winner = i;
-        }
-      }
+      const winner = trick.reduce((winner, card, i) => {
+        if (trick[winner]!.compare(card!, trump, led) > 0) return i;
+        return winner;
+      }, 0);
 
       const taken = context.taken.map((count, i) => {
         if (winner !== i) return count;
@@ -376,31 +374,31 @@ export const euchreClientMachine = setup({
 
       const { active, player, hand, led } = context;
 
+      const trick = context.trick.map((card, i) =>
+        i === active ? event.card : card
+      );
+
       if (active !== player) {
         return {
-          trick: context.trick.concat(event.card),
+          trick,
         };
       }
 
       return {
         hand: hand.filter((card) => !card.equal(event.card)),
         led: led ?? event.card,
-        trick: context.trick.concat(event.card),
+        trick,
       };
     }),
     cleanupTrick: assign(({ context }) => {
-      const { trick, trump } = context;
+      const { trick, trump, led } = context;
       if (trump === null) throw new Error();
+      if (led === null) throw new Error();
 
-      let winner = 0;
-      for (let i = 1; i < trick.length; i++) {
-        const card = trick[i];
-        const winningCard = trick[winner];
-        if (!(card && winningCard)) throw new Error();
-        if (card.compare(winningCard, trump) === 1) {
-          winner = i;
-        }
-      }
+      const winner = trick.reduce((winner, card, i) => {
+        if (trick[winner]!.compare(card!, trump, led) > 0) return i;
+        return winner;
+      }, 0);
 
       const taken = context.taken.map((count, i) => {
         if (winner !== i) return count;

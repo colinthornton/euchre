@@ -5,7 +5,7 @@ export const enum Suit {
   Diamonds = "diamonds",
 }
 
-export function suitIterator() {
+export function suits() {
   return [Suit.Hearts, Suit.Clubs, Suit.Spades, Suit.Diamonds];
 }
 
@@ -27,6 +27,10 @@ export const enum Rank {
   Ace = "ace",
 }
 
+export function ranks() {
+  return [Rank.Nine, Rank.Ten, Rank.Jack, Rank.Queen, Rank.King, Rank.Ace];
+}
+
 export function displayRank(rank: Rank) {
   return {
     [Rank.Nine]: "9",
@@ -38,10 +42,6 @@ export function displayRank(rank: Rank) {
   }[rank];
 }
 
-export function rankInterator() {
-  return [Rank.Nine, Rank.Ten, Rank.Jack, Rank.Queen, Rank.King, Rank.Ace];
-}
-
 export class Card {
   constructor(readonly suit: Suit, readonly rank: Rank) {}
 
@@ -49,27 +49,15 @@ export class Card {
     return card.rank === this.rank && card.suit === this.suit;
   }
 
-  compare(card: Card, trump: Suit | null) {
-    if (this.equal(card)) {
-      return 0;
-    }
-
-    if (card.isTrump(trump) && !this.isTrump(trump)) {
-      return -1;
-    }
-
-    if (!card.isTrump(trump) && this.isTrump(trump)) {
-      return 1;
-    }
-
-    return card.strength(trump) > this.strength(trump) ? -1 : 1;
+  compare(card: Card, trump: Suit | null, led: Card | null) {
+    return card.strength(trump, led) - this.strength(trump, led);
   }
 
   sameSuit(card: Card, trump: Suit | null) {
     const cardIsTrump = card.isTrump(trump);
     const thisIsTrump = this.isTrump(trump);
-    if (cardIsTrump && !thisIsTrump) return false;
-    if (!cardIsTrump && thisIsTrump) return false;
+    if (cardIsTrump && thisIsTrump) return true;
+    if (cardIsTrump || thisIsTrump) return false;
     return card.suit === this.suit;
   }
 
@@ -89,23 +77,41 @@ export class Card {
     }
   }
 
-  strength(trump: Suit | null) {
+  strength(trump: Suit | null, led: Card | null) {
+    if (!this.isTrump(trump)) {
+      if (led && !this.sameSuit(led, trump)) {
+        return 0;
+      }
+
+      switch (this.rank) {
+        case Rank.Nine:
+          return 1;
+        case Rank.Ten:
+          return 2;
+        case Rank.Jack:
+          return 3;
+        case Rank.Queen:
+          return 4;
+        case Rank.King:
+          return 5;
+        case Rank.Ace:
+          return 6;
+      }
+    }
+
     switch (this.rank) {
       case Rank.Nine:
-        return 0;
+        return 7;
       case Rank.Ten:
-        return 1;
+        return 8;
       case Rank.Queen:
-        return 3;
+        return 9;
       case Rank.King:
-        return 4;
+        return 10;
       case Rank.Ace:
-        return 5;
+        return 11;
       case Rank.Jack:
-        if (this.isTrump(trump)) {
-          return this.suit === trump ? 7 : 6;
-        }
-        return 2;
+        return this.suit === trump ? 13 : 12;
     }
   }
 }
@@ -113,7 +119,7 @@ export class Card {
 export class Deck {
   private deck: Card[] = [];
 
-  constructor() {
+  constructor(private removed: Card[] = []) {
     this.reset();
   }
 
@@ -123,9 +129,10 @@ export class Deck {
 
   reset() {
     this.deck = [];
-    for (const suit of suitIterator()) {
-      for (const rank of rankInterator()) {
+    for (const suit of suits()) {
+      for (const rank of ranks()) {
         const card = new Card(suit, rank);
+        if (this.removed.some(card.equal)) continue;
         this.deck.push(card);
       }
     }

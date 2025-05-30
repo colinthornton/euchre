@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
-import { suitIterator, Card, displaySuit } from "./game/cards";
-import CardComponent from "./components/Card.vue";
+import { watch } from "vue";
+import { Card, displaySuit } from "./game/cards";
 import Hand from "./components/Hand.vue";
-import Deck from "./components/Deck.vue";
-import { useEuchreClient } from "./composables/useEuchreClient";
+import BidSelection from "./components/BidSelection.vue";
+import { useEuchreClient } from "./composables/useEuchreClient.ts";
 import { EuchreServer } from "./game/server";
 import Debug from "./components/Debug.vue";
+import Cardzone from "./components/Cardzone.vue";
+import type { ClientEvent } from "./game/euchre";
+import BidDisplay from "./components/BidDisplay.vue";
 
-const { state, context, enqueue, next } = useEuchreClient();
+const { state, event, nextState, enqueue, next } = useEuchreClient();
 
 const server = new EuchreServer(0);
 server.listen((event) => {
@@ -17,33 +19,61 @@ server.listen((event) => {
 });
 server.start();
 
+watch(
+  event,
+  () => {
+    if (!event.value) return;
+    switch (event.value.type) {
+      // animate these someday
+      case "CHOOSE_DEALER":
+      case "DEAL":
+      case "EXCHANGE":
+      case "ORDER_UP":
+      case "CALL_SUIT":
+        console.log("nextState", nextState.value);
+        return next();
+    }
+  },
+  { immediate: true }
+);
+
 function selectCard(card: Card) {
-  switch (state.value) {
+  switch (state.value.phase) {
     case "exchanging":
-      return server.send({ type: "EXCHANGE", card });
+      return send({ type: "EXCHANGE", card });
     case "playing":
-      return server.send({ type: "PLAY", card });
+      return send({ type: "PLAY", card });
   }
+}
+
+function send(event: ClientEvent) {
+  server.send(event);
+  next();
 }
 </script>
 
 <template>
   <div class="layout">
     <Hand
-      :cards="context.hand"
-      :trump="context.trump"
-      :led="context.led"
+      :cards="state.hand"
+      :trump="state.trump"
+      :led="state.led"
       :active="
-        (state === 'playing' || state === 'exchanging') && context.active === 0
+        ['exchanging', 'playing'].includes(state.phase) && state.active === 0
       "
       @select-card="selectCard"
     />
+    <BidSelection class="bid" @event="(event) => send(event)" />
     <section class="play-area">
-      <div class="cardzone"></div>
-      <div class="cardzone left"></div>
-      <div class="cardzone across"></div>
-      <div class="cardzone right"></div>
+      <Cardzone :player="0" />
+      <Cardzone area="left" :player="1" />
+      <Cardzone area="across" :player="2" />
+      <Cardzone area="right" :player="3" />
+      <div v-if="state.trump" class="trump" :class="state.trump">
+        {{ displaySuit(state.trump) }}
+      </div>
     </section>
+    <BidDisplay />
   </div>
 
   <Debug />
@@ -74,6 +104,11 @@ function selectCard(card: Card) {
   grid-area: hand;
 }
 
+.bid {
+  position: fixed;
+  bottom: var(--card-height);
+}
+
 .play-area {
   transform: rotateX(45deg);
   grid-area: play-area;
@@ -90,27 +125,28 @@ function selectCard(card: Card) {
 
 .cardzone {
   grid-area: self;
-  width: var(--card-width);
-  height: var(--card-height);
-  transform-style: preserve-3d;
 }
-
 .cardzone.left {
   grid-area: left;
-  transform: rotate(90deg);
 }
 .cardzone.across {
   grid-area: across;
-  transform: rotate(180deg);
 }
 .cardzone.right {
   grid-area: right;
-  transform: rotate(-90deg);
 }
 
 .trump {
   grid-area: trump;
+  border-radius: var(--radius-round);
   font-size: var(--font-size-8);
+  padding: 0;
+  width: 1em;
+  height: 1em;
+  line-height: 1em;
+  text-align: center;
+  user-select: none;
+  opacity: 0.8;
 }
 
 .trump.hearts,

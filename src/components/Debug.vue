@@ -2,18 +2,26 @@
 import { computed } from "vue";
 import { useEuchreClient } from "../composables/useEuchreClient";
 
-const { state, context, next } = useEuchreClient();
+const { state, event, next } = useEuchreClient();
 
-const keys = ["dealer", "active", "trump", "exchanged", "taken", "score"];
+const keys = [
+  "phase",
+  "dealer",
+  "active",
+  "trump",
+  "exchanged",
+  "taken",
+  "score",
+];
 
 const output = computed(() => {
   const lines = [];
-  lines.push(["state", state.value].join(": "));
-  Object.entries(context.value)
+  Object.entries(state.value)
     .filter(([key]) => keys.includes(key))
     .forEach(([key, value]) => {
       lines.push([key, JSON.stringify(value)].join(": "));
     });
+  lines.push(["event", event.value?.type].join(": "));
   return lines.join("\n");
 });
 </script>
