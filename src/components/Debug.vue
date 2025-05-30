@@ -8,6 +8,7 @@ const keys = [
   "phase",
   "dealer",
   "active",
+  "maker",
   "trump",
   "exchanged",
   "taken",

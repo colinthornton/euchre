@@ -4,6 +4,7 @@ import Hand from "../components/Hand.vue";
 
 export const PLAYER_COUNT = 4;
 export const HAND_SIZE = 5;
+export const WINNING_SCORE = 10;
 
 export type ServerEvent =
   | { type: "CHOOSE_DEALER"; dealer: number }
@@ -23,6 +24,7 @@ const initialServerContext = {
   players: [] as Hand[],
   revealed: null as Card | null,
   active: 0, // index of active player
+  maker: null as number | null, // who called trump
   trump: null as Suit | null,
   led: null as Card | null,
   trick: new Array(PLAYER_COUNT).fill(null) as Trick, // current trick
@@ -64,6 +66,7 @@ export const euchreServerMachine = setup({
 
         return context.revealed.suit;
       },
+      maker: ({ context }) => context.active,
     }),
     exchangeCard: assign({
       players: ({ context, event }) => {
@@ -86,9 +89,14 @@ export const euchreServerMachine = setup({
 
         return event.suit;
       },
+      maker: ({ context }) => context.active,
     }),
-    nextDealer: assign({
-      dealer: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
+    nextDealer: assign(({ context }) => {
+      const dealer = (context.dealer + 1) % PLAYER_COUNT;
+      return {
+        dealer,
+        active: dealer,
+      };
     }),
     assignLead: assign({
       active: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
@@ -138,6 +146,30 @@ export const euchreServerMachine = setup({
         taken,
       };
     }),
+    cleanupRound: assign(({ context }) => {
+      const { taken, maker } = context;
+      if (maker === null) throw new Error();
+
+      const teamTaken = [taken[0] + taken[2], taken[1] + taken[3]];
+      const winningTeam = teamTaken.findIndex((taken) => taken > HAND_SIZE / 2);
+
+      const isSweep = teamTaken[winningTeam] === HAND_SIZE;
+      const isSet = maker % (PLAYER_COUNT / 2) !== winningTeam;
+
+      const score = context.score.map((points, i) => {
+        if (i !== winningTeam) return points;
+        return points + (isSweep || isSet ? 2 : 1);
+      });
+
+      return {
+        revealed: null,
+        trump: null,
+        maker: null,
+        taken: new Array<number>(PLAYER_COUNT).fill(0),
+        tricks: [],
+        score,
+      };
+    }),
   },
   guards: {
     isDealer: ({ context }) => context.active === context.dealer,
@@ -181,6 +213,9 @@ export const euchreServerMachine = setup({
     },
     trickOver: ({ context }) => {
       return context.trick.every((card) => card !== null);
+    },
+    gameOver: ({ context }) => {
+      return context.score.some((points) => points >= WINNING_SCORE);
     },
   },
 }).createMachine({
@@ -268,7 +303,22 @@ export const euchreServerMachine = setup({
         },
       ],
     },
-    cleanup: {},
+    cleanup: {
+      entry: "cleanupRound",
+      always: [
+        {
+          guard: "gameOver",
+          target: "over",
+        },
+        {
+          actions: "nextDealer",
+          target: "dealing",
+        },
+      ],
+    },
+    over: {
+      type: "final",
+    },
   },
 });
 
@@ -288,6 +338,7 @@ const initialClientContext = {
   hand: [] as Hand,
   revealed: null as Card | null,
   active: 0,
+  maker: null as number | null,
   trump: null as Suit | null,
   exchanged: false,
   led: null as Card | null,
@@ -338,6 +389,7 @@ export const euchreClientMachine = setup({
 
         return context.revealed.suit;
       },
+      maker: ({ context }) => context.active,
     }),
     exchangeCard: assign(({ context, event }) => {
       if (event.type !== "EXCHANGE") throw new Error();
@@ -357,14 +409,19 @@ export const euchreClientMachine = setup({
         exchanged: true,
       };
     }),
-    nextDealer: assign({
-      dealer: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
+    nextDealer: assign(({ context }) => {
+      const dealer = (context.dealer + 1) % PLAYER_COUNT;
+      return {
+        dealer,
+        active: dealer,
+      };
     }),
     callSuit: assign({
       trump: ({ event }) => {
         if (event.type !== "CALL_SUIT") throw new Error();
         return event.suit;
       },
+      maker: ({ context }) => context.active,
     }),
     assignLead: assign({
       active: ({ context }) => (context.dealer + 1) % PLAYER_COUNT,
@@ -414,6 +471,30 @@ export const euchreClientMachine = setup({
         taken,
       };
     }),
+    cleanupRound: assign(({ context }) => {
+      const { taken, maker } = context;
+      if (maker === null) throw new Error();
+
+      const teamTaken = [taken[0] + taken[2], taken[1] + taken[3]];
+      const winningTeam = teamTaken.findIndex((taken) => taken > HAND_SIZE / 2);
+
+      const isSweep = teamTaken[winningTeam] === HAND_SIZE;
+      const isSet = maker % (PLAYER_COUNT / 2) !== winningTeam;
+
+      const score = context.score.map((points, i) => {
+        if (i !== winningTeam) return points;
+        return points + (isSweep || isSet ? 2 : 1);
+      });
+
+      return {
+        revealed: null,
+        trump: null,
+        maker: null,
+        taken: new Array<number>(PLAYER_COUNT).fill(0),
+        tricks: [],
+        score,
+      };
+    }),
   },
   guards: {
     isDealer: ({ context }) => context.active === context.dealer,
@@ -460,6 +541,9 @@ export const euchreClientMachine = setup({
     },
     trickOver: ({ context }) => {
       return context.trick.every((card) => card !== null);
+    },
+    gameOver: ({ context }) => {
+      return context.score.some((points) => points >= WINNING_SCORE);
     },
   },
 }).createMachine({
@@ -547,6 +631,21 @@ export const euchreClientMachine = setup({
         },
       ],
     },
-    cleanup: {},
+    cleanup: {
+      entry: "cleanupRound",
+      always: [
+        {
+          guard: "gameOver",
+          target: "over",
+        },
+        {
+          actions: "nextDealer",
+          target: "dealing",
+        },
+      ],
+    },
+    over: {
+      type: "final",
+    },
   },
 });

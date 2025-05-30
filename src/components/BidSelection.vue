@@ -32,6 +32,7 @@ const openSuits = computed(() => {
       <button @click="$emit('event', { type: 'ORDER_UP' })">Order Up</button>
     </template>
     <template v-if="showOpen">
+      <button @click="$emit('event', { type: 'PASS' })">Pass</button>
       <button
         v-for="suit of openSuits"
         @click="$emit('event', { type: 'CALL_SUIT', suit })"
