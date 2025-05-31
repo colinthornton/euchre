@@ -43,9 +43,7 @@ export class EuchreServer {
       const clientEvents = snapshot.context.events.map((event) =>
         this.clientEventFrom(event, snapshot.context, active)
       );
-      console.log(clientEvents);
       const botMove = await decideMove(clientEvents, active);
-      console.log("botMove", botMove);
       if (botMove && snapshot.can(botMove)) {
         this.server.send(botMove);
       }

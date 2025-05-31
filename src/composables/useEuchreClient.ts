@@ -32,7 +32,6 @@ const eventQueue = createActor(
         if (event.type !== "ENQUEUE") throw new Error();
 
         const queue = context.queue.concat(event.event);
-        console.log(queue);
         return {
           queue,
         };

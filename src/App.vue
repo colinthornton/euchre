@@ -10,11 +10,10 @@ import Cardzone from "./components/Cardzone.vue";
 import type { ClientEvent } from "./game/euchre";
 import BidDisplay from "./components/BidDisplay.vue";
 
-const { state, event, nextState, enqueue, next } = useEuchreClient();
+const { state, event, enqueue, next } = useEuchreClient();
 
 const server = new EuchreServer(0);
 server.listen((event) => {
-  console.log("server", event);
   enqueue(event);
 });
 server.start();
@@ -30,7 +29,6 @@ watch(
       case "EXCHANGE":
       case "ORDER_UP":
       case "CALL_SUIT":
-        console.log("nextState", nextState.value);
         return next();
     }
   },

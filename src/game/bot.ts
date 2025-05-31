@@ -1,6 +1,6 @@
 import { createActor } from "xstate";
 import { euchreClientMachine, PLAYER_COUNT, type ClientEvent } from "./euchre";
-import { Card, Deck, Suit } from "./cards";
+import { Card, Deck, Rank, Suit, suits } from "./cards";
 
 const PRELIMINARY_SIMULATIONS = 100;
 const MAX_SIMULATIONS = 1000;
@@ -14,6 +14,7 @@ export async function decideMove(
   | { type: "PASS" }
   | { type: "ORDER_UP" }
   | { type: "EXCHANGE"; card: Card }
+  | { type: "CALL_SUIT"; suit: Suit }
   | { type: "PLAY"; card: Card }
   | undefined
 > {
@@ -58,15 +59,94 @@ export async function decideMove(
   }
 
   if (snapshot.matches("open")) {
+    const { hand, revealed } = context;
+    if (!revealed) throw new Error();
+
+    const candidates = suits().filter((suit) => {
+      if (revealed.suit === suit) return false;
+      if (hand.some((card) => card.isTrump(suit))) return true;
+      return false;
+    });
+
+    const results = new Map<Suit, { wins: number; simulations: number }>();
+    let i = 0;
+    let simulations = 0;
+    const ignore = new Set<Suit>();
+    while (simulations < MAX_SIMULATIONS) {
+      if (ignore.size === candidates.length) {
+        return { type: "PASS" };
+      }
+
+      const suit = candidates[i % candidates.length];
+      if (ignore.has(suit)) {
+        i++;
+        continue;
+      }
+
+      const result = results.get(suit) ?? { wins: 0, simulations: 0 };
+
+      if (
+        result.simulations === PRELIMINARY_SIMULATIONS &&
+        result.wins < PRELIMINARY_SIMULATIONS * NO_CONFIDENCE_RATIO
+      ) {
+        ignore.add(suit);
+        i++;
+        continue;
+      }
+
+      const client = getClient(events, bot);
+      const hands = dealHands(client, bot);
+      client.send({ type: "CALL_SUIT", suit });
+
+      results.set(suit, {
+        wins: result.wins + playRound(client, bot, hands),
+        simulations: result.simulations + 1,
+      });
+
+      i++;
+      simulations++;
+    }
+    console.log({ results, hand });
+
+    let bestSuit: Suit | undefined;
+    let bestRatio = 0;
+    for (const [suit, { wins, simulations }] of results.entries()) {
+      const ratio = wins / simulations;
+      if (ratio >= CONFIDENCE_RATIO && ratio > bestRatio) {
+        bestSuit = suit;
+        bestRatio = ratio;
+      }
+    }
+
+    if (bestSuit) {
+      return { type: "CALL_SUIT", suit: bestSuit };
+    }
     return { type: "PASS" };
   }
 
-  // exchange first card
   if (snapshot.matches("exchanging")) {
-    return {
-      type: "EXCHANGE",
-      card: context.hand[0],
-    };
+    const candidates = exchangeCandidates(context.hand, context.trump);
+    if (candidates.length === 1) {
+      return { type: "EXCHANGE", card: candidates[0] };
+    }
+
+    const results = new Map<Card, number>();
+    for (let i = 0; i < MAX_SIMULATIONS; i++) {
+      const client = getClient(events, bot);
+      const hands = dealHands(client, bot);
+      const card = candidates[i % candidates.length];
+      client.send({ type: "EXCHANGE", card });
+      results.set(
+        card,
+        (results.get(card) ?? 0) + playRound(client, bot, hands)
+      );
+    }
+    console.log(results);
+    const [card] = Array.from(results.entries()).reduce(
+      ([bestCard, bestScore], [card, score]) =>
+        score > bestScore ? [card, score] : [bestCard, bestScore]
+    );
+    return { type: "EXCHANGE", card };
   }
 
   // play first playable card in hand
@@ -164,23 +244,31 @@ function exchangeRandomly(
   const hand = active === bot ? context.hand : hands.get(active);
   if (!hand) throw new Error();
 
+  const candidates = exchangeCandidates(hand, trump);
+  const randomCard = candidates[Math.floor(Math.random() * candidates.length)];
+  client.send({ type: "EXCHANGE", card: randomCard });
+}
+
+/**
+ * extract candidates for exchanging from hand
+ */
+function exchangeCandidates(hand: Card[], trump: Suit | null): Card[] {
   const sorted = hand.slice().sort((a, b) => b.compare(a, trump, null));
   const candidates = new Map<Suit, Card>();
   for (const card of sorted) {
+    // don't throw away trumps
     if (card.isTrump(trump)) continue;
+    // don't throw away aces
+    if (card.rank === Rank.Ace) continue;
+    // don't throw away higher ranked cards
     if (candidates.get(card.suit)) continue;
     candidates.set(card.suit, card);
   }
-
-  // nothing but trumps for some reason, trade the lowest
+  // nothing but trumps for some reason, send the lowest
   if (candidates.size === 0) {
-    client.send({ type: "EXCHANGE", card: sorted[0] });
-    return;
+    return [sorted[0]];
   }
-
-  const cards = Array.from(candidates.values());
-  const randomCard = cards[Math.floor(Math.random() * cards.length)];
-  client.send({ type: "EXCHANGE", card: randomCard });
+  return Array.from(candidates.values());
 }
 
 function playRound(
