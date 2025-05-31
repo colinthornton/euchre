@@ -1,23 +1,59 @@
 import { createActor } from "xstate";
 import { euchreClientMachine, PLAYER_COUNT, type ClientEvent } from "./euchre";
-import { Card, Deck } from "./cards";
+import { Card, Deck, Suit } from "./cards";
+
+const PRELIMINARY_SIMULATIONS = 100;
+const MAX_SIMULATIONS = 1000;
+const NO_CONFIDENCE_RATIO = 0.45;
+const CONFIDENCE_RATIO = 0.55;
 
 export async function decideMove(
   events: ClientEvent[],
-  player: number
+  bot: number
 ): Promise<
   | { type: "PASS" }
+  | { type: "ORDER_UP" }
   | { type: "EXCHANGE"; card: Card }
   | { type: "PLAY"; card: Card }
   | undefined
 > {
-  const client = getClient(events, player);
+  const client = getClient(events, bot);
   const snapshot = client.getSnapshot();
   const { context } = snapshot;
 
   await new Promise((r) => setTimeout(r, 500));
 
   if (snapshot.matches("auction")) {
+    const { hand, revealed } = context;
+    if (!revealed) throw new Error();
+
+    // pass unless you have some trumps cards
+    if (!hand.some((card) => card.isTrump(revealed.suit))) {
+      return { type: "PASS" };
+    }
+
+    let wins = 0;
+
+    for (let i = 0; i < MAX_SIMULATIONS; i++) {
+      const client = getClient(events, bot);
+      const hands = dealHands(client, bot);
+      client.send({ type: "ORDER_UP" });
+      exchangeRandomly(client, bot, hands);
+      wins += playRound(client, bot, hands);
+
+      if (
+        i === PRELIMINARY_SIMULATIONS &&
+        wins < PRELIMINARY_SIMULATIONS * NO_CONFIDENCE_RATIO
+      ) {
+        return { type: "PASS" };
+      }
+    }
+
+    if (wins >= MAX_SIMULATIONS * CONFIDENCE_RATIO) {
+      console.log({ wins, hand });
+      return { type: "ORDER_UP" };
+    }
+
     return { type: "PASS" };
   }
 
@@ -45,10 +81,10 @@ export async function decideMove(
     const results = new Map<Card, number>();
     const maxSimulations = 1000 + (1000 % playableCards.length);
     for (let i = 0; i < maxSimulations; i++) {
-      const client = getClient(events, player);
-      const hands = dealHands(client);
+      const client = getClient(events, bot);
+      const hands = dealHands(client, bot);
       const card = playableCards[i % playableCards.length];
-      const result = playRound(client, player, hands, card);
+      const result = playRound(client, bot, hands, card);
       results.set(card, (results.get(card) ?? 0) + result);
     }
     console.log(results);
@@ -63,9 +99,9 @@ export async function decideMove(
 /**
  * get the bot's client state by replaying events
  */
-function getClient(events: ClientEvent[], player: number) {
+function getClient(events: ClientEvent[], bot: number) {
   const client = createActor(euchreClientMachine, {
-    input: { player },
+    input: { player: bot },
   });
   client.start();
   for (const event of events) {
@@ -84,7 +120,7 @@ function getClient(events: ClientEvent[], player: number) {
 /**
  * deal out cards randomly from those not seen yet seen
  */
-function dealHands(client: ReturnType<typeof getClient>) {
+function dealHands(client: ReturnType<typeof getClient>, bot: number) {
   const { context } = client.getSnapshot();
 
   const seenCards = [
@@ -99,7 +135,7 @@ function dealHands(client: ReturnType<typeof getClient>) {
 
   const hands = new Map<number, Card[]>();
   for (let i = 1; i < PLAYER_COUNT; i++) {
-    const player = (context.active + i) % PLAYER_COUNT;
+    const player = (bot + i) % PLAYER_COUNT;
     const hasPlayed = context.trick[player] !== null;
     const isDealer = player === context.dealer;
     const hasExchanged = context.exchanged;
@@ -118,10 +154,39 @@ function dealHands(client: ReturnType<typeof getClient>) {
   return hands;
 }
 
+function exchangeRandomly(
+  client: ReturnType<typeof getClient>,
+  bot: number,
+  hands: ReturnType<typeof dealHands>
+) {
+  const { context } = client.getSnapshot();
+  const { active, trump } = context;
+  const hand = active === bot ? context.hand : hands.get(active);
+  if (!hand) throw new Error();
+
+  const sorted = hand.slice().sort((a, b) => b.compare(a, trump, null));
+  const candidates = new Map<Suit, Card>();
+  for (const card of sorted) {
+    if (card.isTrump(trump)) continue;
+    if (candidates.get(card.suit)) continue;
+    candidates.set(card.suit, card);
+  }
+
+  // nothing but trumps for some reason, trade the lowest
+  if (candidates.size === 0) {
+    client.send({ type: "EXCHANGE", card: sorted[0] });
+    return;
+  }
+
+  const cards = Array.from(candidates.values());
+  const randomCard = cards[Math.floor(Math.random() * cards.length)];
+  client.send({ type: "EXCHANGE", card: randomCard });
+}
+
 function playRound(
   client: ReturnType<typeof getClient>,
-  player: number,
-  hands: Map<number, Card[]>,
+  bot: number,
+  hands: ReturnType<typeof dealHands>,
   initialCard?: Card
 ): 0 | 1 {
   const before = client.getSnapshot().context;
@@ -132,7 +197,7 @@ function playRound(
     const { active, led, trump } = snapshot.context;
 
     if (
-      active === player &&
+      active === bot &&
       initialCard &&
       snapshot.can({ type: "PLAY", card: initialCard })
     ) {
@@ -140,7 +205,7 @@ function playRound(
       continue;
     }
 
-    let hand = active === player ? snapshot.context.hand : hands.get(active);
+    let hand = active === bot ? snapshot.context.hand : hands.get(active);
     if (!hand) throw new Error();
 
     // remove cards that don't follow suit
@@ -150,7 +215,7 @@ function playRound(
     // pick a random card
     const randomCard = hand[Math.floor(Math.random()) * hand.length];
     // remove it from the hand
-    if (active !== player) {
+    if (active !== bot) {
       hands.set(
         active,
         hands.get(active)!.filter((card) => !card.equal(randomCard))
@@ -164,7 +229,7 @@ function playRound(
 
   const after = client.getSnapshot().context;
 
-  const team = player % (PLAYER_COUNT / 2);
+  const team = bot % (PLAYER_COUNT / 2);
   const initialScore = before.score[team];
   const score = after.score[team];
   if (score > initialScore) return 1;
