@@ -9,6 +9,7 @@ const keys = [
   "dealer",
   "active",
   "maker",
+  "revealed",
   "trump",
   "exchanged",
   "taken",

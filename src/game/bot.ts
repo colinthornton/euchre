@@ -2,7 +2,7 @@ import { createActor } from "xstate";
 import { euchreClientMachine, PLAYER_COUNT, type ClientEvent } from "./euchre";
 import { Card, Deck, Rank, Suit, suits } from "./cards";
 
-const PRELIMINARY_SIMULATIONS = 100;
+const PRELIMINARY_SIMULATIONS = 30;
 const MAX_SIMULATIONS = 1000;
 const NO_CONFIDENCE_RATIO = 0.45;
 const CONFIDENCE_RATIO = 0.55;
@@ -28,33 +28,41 @@ export async function decideMove(
     const { hand, revealed } = context;
     if (!revealed) throw new Error();
 
-    // pass unless you have some trumps cards
+    // pass unless you have at least one trump
     if (!hand.some((card) => card.isTrump(revealed.suit))) {
+      console.log("PASS: no trump");
       return { type: "PASS" };
     }
 
-    let wins = 0;
+    const evs = [];
+    let stats: ReturnType<typeof statistics> = {
+      n: 0,
+      mean: 0,
+      variance: 0,
+      standardError: 0,
+    };
+    const passStats = { mean: 0, standardError: 0 };
 
     for (let i = 0; i < MAX_SIMULATIONS; i++) {
       const client = getClient(events, bot);
       const hands = dealHands(client, bot);
       client.send({ type: "ORDER_UP" });
       exchangeRandomly(client, bot, hands);
-      wins += playRound(client, bot, hands);
+      evs.push(playRound(client, bot, hands));
 
-      if (
-        i === PRELIMINARY_SIMULATIONS &&
-        wins < PRELIMINARY_SIMULATIONS * NO_CONFIDENCE_RATIO
-      ) {
+      if (i < PRELIMINARY_SIMULATIONS) continue;
+      stats = statistics(evs);
+
+      if (stats.mean < 0 && isSignificantlyBetter(passStats, stats)) {
+        console.log("PASS:", { stats, hand });
         return { type: "PASS" };
+      } else if (isSignificantlyBetter(stats, passStats)) {
+        console.log("ORDER_UP:", { stats, hand });
+        return { type: "ORDER_UP" };
       }
     }
 
-    if (wins >= MAX_SIMULATIONS * CONFIDENCE_RATIO) {
-      console.log({ wins, hand });
-      return { type: "ORDER_UP" };
-    }
-
+    console.log("PASS:", { stats, hand });
     return { type: "PASS" };
   }
 
@@ -276,7 +284,7 @@ function playRound(
   bot: number,
   hands: ReturnType<typeof dealHands>,
   initialCard?: Card
-): 0 | 1 {
+) {
   const before = client.getSnapshot().context;
 
   // play out the round
@@ -318,9 +326,36 @@ function playRound(
   const after = client.getSnapshot().context;
 
   const team = bot % (PLAYER_COUNT / 2);
-  const initialScore = before.score[team];
-  const score = after.score[team];
-  if (score > initialScore) return 1;
+  const opponents = (bot + 1) % (PLAYER_COUNT / 2);
+  return (
+    after.score[team] -
+    before.score[team] -
+    (after.score[opponents] - before.score[opponents])
+  );
+}
 
-  return 0;
+function statistics(evs: number[]) {
+  if (evs.length < 1) throw new Error();
+
+  const n = evs.length;
+  const mean = evs.reduce((sum, x) => sum + x, 0) / n;
+  const variance = evs.reduce((sum, x) => sum + (x - mean) ** 2, 0) / (n - 1);
+  const standardError = Math.sqrt(variance) / Math.sqrt(n);
+  return {
+    n,
+    mean,
+    variance,
+    standardError,
+  };
+}
+
+function isSignificantlyBetter(
+  a: { mean: number; standardError: number },
+  b: { mean: number; standardError: number },
+  confidenceZ: number = 1.96 // 95%
+): boolean {
+  const diff = a.mean - b.mean;
+  const seDiff = Math.sqrt(a.standardError ** 2 + b.standardError ** 2);
+
+  return diff > confidenceZ * seDiff;
 }
