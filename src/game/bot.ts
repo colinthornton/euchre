@@ -3,9 +3,9 @@ import { euchreClientMachine, PLAYER_COUNT, type ClientEvent } from "./euchre";
 import { Card, Deck, Rank, Suit, suits } from "./cards";
 
 const PRELIMINARY_SIMULATIONS = 30;
+const CHECK_EVERY = 10;
 const MAX_SIMULATIONS = 1000;
-const NO_CONFIDENCE_RATIO = 0.45;
-const CONFIDENCE_RATIO = 0.55;
+const PASS_STATS = statistics([]);
 
 export async function decideMove(
   events: ClientEvent[],
@@ -35,13 +35,7 @@ export async function decideMove(
     }
 
     const evs = [];
-    let stats: ReturnType<typeof statistics> = {
-      n: 0,
-      mean: 0,
-      variance: 0,
-      standardError: 0,
-    };
-    const passStats = { mean: 0, standardError: 0 };
+    let stats = statistics([]);
 
     for (let i = 0; i < MAX_SIMULATIONS; i++) {
       const client = getClient(events, bot);
@@ -51,12 +45,13 @@ export async function decideMove(
       evs.push(playRound(client, bot, hands));
 
       if (i < PRELIMINARY_SIMULATIONS) continue;
-      stats = statistics(evs);
+      if (i % CHECK_EVERY !== 0) continue;
 
-      if (stats.mean < 0 && isSignificantlyBetter(passStats, stats)) {
+      stats = statistics(evs);
+      if (stats.mean < 0 && isSignificantlyBetter(PASS_STATS, stats)) {
         console.log("PASS:", { stats, hand });
         return { type: "PASS" };
-      } else if (isSignificantlyBetter(stats, passStats)) {
+      } else if (isSignificantlyBetter(stats, PASS_STATS)) {
         console.log("ORDER_UP:", { stats, hand });
         return { type: "ORDER_UP" };
       }
@@ -76,59 +71,69 @@ export async function decideMove(
       return false;
     });
 
-    const results = new Map<Suit, { wins: number; simulations: number }>();
+    const stats = new Map<Suit, ReturnType<typeof statistics>>();
+    for (const suit of candidates) {
+      stats.set(suit, statistics([]));
+    }
+
     let i = 0;
     let simulations = 0;
     const ignore = new Set<Suit>();
-    while (simulations < MAX_SIMULATIONS) {
-      if (ignore.size === candidates.length) {
-        return { type: "PASS" };
-      }
-
+    while ((i++, simulations < MAX_SIMULATIONS)) {
       const suit = candidates[i % candidates.length];
-      if (ignore.has(suit)) {
-        i++;
-        continue;
-      }
+      if (ignore.has(suit)) continue;
 
-      const result = results.get(suit) ?? { wins: 0, simulations: 0 };
-
-      if (
-        result.simulations === PRELIMINARY_SIMULATIONS &&
-        result.wins < PRELIMINARY_SIMULATIONS * NO_CONFIDENCE_RATIO
-      ) {
-        ignore.add(suit);
-        i++;
-        continue;
-      }
-
+      // simulate round
       const client = getClient(events, bot);
       const hands = dealHands(client, bot);
       client.send({ type: "CALL_SUIT", suit });
-
-      results.set(suit, {
-        wins: result.wins + playRound(client, bot, hands),
-        simulations: result.simulations + 1,
-      });
-
-      i++;
+      const ev = playRound(client, bot, hands);
       simulations++;
-    }
-    console.log({ results, hand });
 
-    let bestSuit: Suit | undefined;
-    let bestRatio = 0;
-    for (const [suit, { wins, simulations }] of results.entries()) {
-      const ratio = wins / simulations;
-      if (ratio >= CONFIDENCE_RATIO && ratio > bestRatio) {
-        bestSuit = suit;
-        bestRatio = ratio;
+      // update stats
+      const { evs } = stats.get(suit)!;
+      evs.push(ev);
+      stats.set(suit, statistics(evs));
+
+      // get a baseline of EVs for all options
+      if (i < PRELIMINARY_SIMULATIONS * candidates.length) continue;
+
+      // periodically compare moves to remove bad ones
+      if (i % (CHECK_EVERY * candidates.length) !== 0) continue;
+
+      const sorted = Array.from(stats.entries()).sort(
+        (a, b) => b[1].mean - a[1].mean
+      );
+      const [, bestStats] = sorted[0];
+      if (isSignificantlyBetter(PASS_STATS, bestStats)) {
+        console.log("PASS:", { stats, hand });
+        return { type: "PASS" };
       }
+      for (let i = 1; i < sorted.length; i++) {
+        const [suit, stats] = sorted[i];
+        if (ignore.has(suit)) continue;
+        if (
+          isSignificantlyBetter(bestStats, stats) ||
+          isSignificantlyBetter(PASS_STATS, stats)
+        ) {
+          ignore.add(suit);
+        }
+      }
+
+      // only one candidate remains
+      if (ignore.size === candidates.length - 1) break;
     }
 
-    if (bestSuit) {
-      return { type: "CALL_SUIT", suit: bestSuit };
+    const sorted = Array.from(stats.entries()).sort(
+      (a, b) => b[1].mean - a[1].mean
+    );
+    const [suit, stat] = sorted[0];
+    if (isSignificantlyBetter(stat, PASS_STATS)) {
+      console.log("CALL_SUIT:", { stats, hand });
+      return { type: "CALL_SUIT", suit };
     }
+
+    console.log("PASS:", { stats, hand });
     return { type: "PASS" };
   }
 
@@ -335,13 +340,22 @@ function playRound(
 }
 
 function statistics(evs: number[]) {
-  if (evs.length < 1) throw new Error();
+  if (evs.length < 1) {
+    return {
+      evs,
+      n: 0,
+      mean: 0,
+      variance: 0,
+      standardError: 0,
+    };
+  }
 
   const n = evs.length;
   const mean = evs.reduce((sum, x) => sum + x, 0) / n;
   const variance = evs.reduce((sum, x) => sum + (x - mean) ** 2, 0) / (n - 1);
   const standardError = Math.sqrt(variance) / Math.sqrt(n);
   return {
+    evs,
     n,
     mean,
     variance,
